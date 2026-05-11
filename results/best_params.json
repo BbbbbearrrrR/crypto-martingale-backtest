@@ -1,0 +1,62 @@
+{
+  "btc": {
+    "best_return": 0.672562,
+    "max_hold_ratio": 0.207612,
+    "params": {
+      "LEVERAGE": 50,
+      "BASE_RISK": 0.05,
+      "MAX_LEVELS": 10,
+      "MAX_PYRAMID_LEVELS": 10,
+      "TP_MARGIN_RATE": 1.0,
+      "SL_CAPITAL_RATE": 0.2,
+      "BOLL_PERIOD": 14,
+      "BOLL_STD": 1.5,
+      "TREND_EMA_PERIOD": 10
+    }
+  },
+  "eth": {
+    "best_return": 0.758214,
+    "max_hold_ratio": 0.448013,
+    "params": {
+      "LEVERAGE": 50,
+      "BASE_RISK": 0.05,
+      "MAX_LEVELS": 10,
+      "MAX_PYRAMID_LEVELS": 10,
+      "TP_MARGIN_RATE": 1.0,
+      "SL_CAPITAL_RATE": 0.5,
+      "BOLL_PERIOD": 20,
+      "BOLL_STD": 1.5,
+      "TREND_EMA_PERIOD": 10
+    }
+  },
+  "sol": {
+    "best_return": 2.497218,
+    "max_hold_ratio": 0.242915,
+    "params": {
+      "LEVERAGE": 50,
+      "BASE_RISK": 0.05,
+      "MAX_LEVELS": 10,
+      "MAX_PYRAMID_LEVELS": 10,
+      "TP_MARGIN_RATE": 0.75,
+      "SL_CAPITAL_RATE": 0.5,
+      "BOLL_PERIOD": 20,
+      "BOLL_STD": 1.5,
+      "TREND_EMA_PERIOD": 30
+    }
+  },
+  "hype": {
+    "best_return": 0.448363,
+    "max_hold_ratio": 0.107096,
+    "params": {
+      "LEVERAGE": 30,
+      "BASE_RISK": 0.05,
+      "MAX_LEVELS": 10,
+      "MAX_PYRAMID_LEVELS": 5,
+      "TP_MARGIN_RATE": 1.0,
+      "SL_CAPITAL_RATE": 1,
+      "BOLL_PERIOD": 20,
+      "BOLL_STD": 2.0,
+      "TREND_EMA_PERIOD": 20
+    }
+  }
+}
