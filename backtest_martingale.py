@@ -201,6 +201,74 @@ def preload_data():
         )
 
 
+
+# ── Metrics & display helpers ─────────────────────────────────────────────────
+def compute_metrics(t, initial_capital):
+    """Compute full performance metrics from a completed trades DataFrame."""
+    import numpy as np
+    n        = len(t)
+    wins     = int((t["pnl_usdt"] > 0).sum())
+    losses   = n - wins
+    win_rate = wins / n * 100
+    avg_win  = float(t.loc[t["pnl_usdt"] > 0,  "pnl_usdt"].mean()) if wins   else 0.0
+    avg_loss = float(t.loc[t["pnl_usdt"] <= 0, "pnl_usdt"].mean()) if losses else 0.0
+    pf       = (wins * avg_win / (-losses * avg_loss)
+                if losses and avg_loss < 0 else float("inf"))
+    expectancy = float(t["pnl_usdt"].mean())
+    final      = float(t["capital"].iloc[-1])
+    total_ret  = (final - initial_capital) / initial_capital * 100
+    max_dd     = float(t["drawdown"].max()) * 100
+
+    eq        = t.set_index("exit_time")["capital"].resample("1D").last().ffill()
+    import pandas as pd
+    first_day = eq.index[0] - pd.Timedelta(days=1)
+    eq        = pd.concat([pd.Series({first_day: float(initial_capital)}), eq])
+    daily_ret = eq.pct_change().dropna()
+    sharpe    = float(daily_ret.mean() / daily_ret.std() * np.sqrt(252)) if daily_ret.std() > 0 else 0.0
+
+    span_days = max((t["exit_time"].iloc[-1] - t["exit_time"].iloc[0]).days, 1)
+    ann_ret   = (final / initial_capital) ** (365.25 / span_days) - 1
+    calmar    = float(ann_ret / (max_dd / 100)) if max_dd > 0 else float("inf")
+
+    return dict(
+        n=n, wins=wins, losses=losses, win_rate=win_rate,
+        avg_win=avg_win, avg_loss=avg_loss, pf=pf, expectancy=expectancy,
+        total_ret=total_ret, max_dd=max_dd, sharpe=sharpe, calmar=calmar, final=final,
+    )
+
+
+def print_summary_table(strategy_name, header, metrics):
+    """Print a formatted ASCII summary table of per-coin performance metrics."""
+    cols   = ["Coin",  "Trades", "Win%",  "AvgWin$", "AvgLoss$", "PF",
+              "Expect$", "Return%", "MaxDD%", "Sharpe",  "Calmar"]
+    widths = [5,        7,        6,        9,         9,          6,
+              8,         8,         7,        7,         7]
+
+    def _sep(lft, mid, rgt):
+        return lft + mid.join("─" * (w + 2) for w in widths) + rgt
+
+    def _row(vals):
+        return "|" + "|".join(f" {str(v):>{w}} " for v, w in zip(vals, widths)) + "|"
+
+    total_w = sum(w + 3 for w in widths) + 1
+    title   = f" {strategy_name}  *  {header} "
+    print(f"\n+{'-' * (total_w - 2)}+")
+    print(f"|{title:<{total_w - 2}}|")
+    print(_sep("+", "+", "+"))
+    print(_row(cols))
+    print(_sep("+", "+", "+"))
+    for coin, m in metrics.items():
+        pf_s  = f"{m['pf']:.2f}"     if m["pf"]     < 999 else "inf"
+        cal_s = f"{m['calmar']:.2f}" if m["calmar"]  < 999 else "inf"
+        print(_row([
+            coin.upper(), m["n"],
+            f"{m['win_rate']:.1f}%", f"${m['avg_win']:.1f}", f"${m['avg_loss']:.1f}",
+            pf_s, f"${m['expectancy']:.1f}", f"{m['total_ret']:.1f}%",
+            f"{m['max_dd']:.1f}%", f"{m['sharpe']:.2f}", cal_s,
+        ]))
+    print(_sep("+", "+", "+"))
+
+
 def run_backtest(symbol: str, coin: str):
     print(f"\n{'='*50}")
     print(f"  {symbol}")
@@ -338,7 +406,9 @@ def run_backtest(symbol: str, coin: str):
     print(f"  Total return  : {(final - INITIAL_CAPITAL)/INITIAL_CAPITAL*100:.1f}%")
     print(f"  Max drawdown  : {t['drawdown'].max()*100:.1f}%")
     print(f"  Final capital : ${final:.2f}")
-    return t, (final - INITIAL_CAPITAL) / INITIAL_CAPITAL, max_hold_ratio
+
+    m = compute_metrics(t, INITIAL_CAPITAL)
+    return t, (m["final"] - INITIAL_CAPITAL) / INITIAL_CAPITAL, t["peak_loss_ratio"].max(), m
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -362,20 +432,22 @@ COINS = [
 ]
 
 
-def run_once(verbose: bool = True) -> tuple[float, dict, dict]:
+def run_once(verbose: bool = True) -> tuple:
     """Run backtest on all coins with current global params.
-    Returns (avg_return, coin_returns, coin_hold_ratios).
+    Returns (avg_return, coin_returns, coin_hold_ratios, coin_metrics).
     """
-    coin_returns: dict = {}
+    coin_returns: dict    = {}
     coin_hold_ratios: dict = {}
+    coin_metrics: dict    = {}
     for symbol, coin in COINS:
         result = run_backtest(symbol, coin) if verbose else _run_silent(symbol, coin)
         if result is not None:
-            _, ret, hold_ratio = result
-            coin_returns[coin] = ret
+            _, ret, hold_ratio, m = result
+            coin_returns[coin]     = ret
             coin_hold_ratios[coin] = hold_ratio
+            coin_metrics[coin]     = m
     avg_ret = sum(coin_returns.values()) / len(coin_returns) if coin_returns else 0.0
-    return avg_ret, coin_returns, coin_hold_ratios
+    return avg_ret, coin_returns, coin_hold_ratios, coin_metrics
 
 
 def _run_silent(symbol: str, coin: str):
@@ -406,8 +478,46 @@ def _worker_init():
 def _tune_worker(p: dict):
     """Worker: apply params in this subprocess, run backtest, return results."""
     _apply_params(p)
-    avg_ret, coin_returns, coin_hold_ratios = run_once(verbose=False)
+    avg_ret, coin_returns, coin_hold_ratios, _ = run_once(verbose=False)
     return p, avg_ret, coin_returns, coin_hold_ratios, current_params()
+
+
+def _save_best_results_table():
+    """Re-run each coin with its best params, print and save the summary table."""
+    if not BEST_PARAMS_FILE.exists():
+        return
+    best = json.loads(BEST_PARAMS_FILE.read_text())
+    coin_metrics: dict = {}
+    for symbol, coin in COINS:
+        entry = best.get(coin)
+        if not entry:
+            continue
+        _apply_params(entry["params"])
+        result = _run_silent(symbol, coin)
+        if result is not None:
+            _, _ret, _hold, m = result
+            coin_metrics[coin] = m
+
+    if not coin_metrics:
+        return
+
+    import io, sys as _sys
+    buf = io.StringIO()
+    _old_stdout, _sys.stdout = _sys.stdout, buf
+    try:
+        print_summary_table(
+            "Martingale (Best Params)",
+            f"per-coin optimal  |  {len(coin_metrics)} coins",
+            coin_metrics,
+        )
+    finally:
+        _sys.stdout = _old_stdout
+    table_text = buf.getvalue()
+
+    print(table_text)
+    out_file = RESULTS_DIR / "best_results_table.txt"
+    out_file.write_text(table_text, encoding="utf-8")
+    print(f"Best results table saved to {out_file}")
 
 
 def auto_tune():
@@ -455,6 +565,7 @@ def auto_tune():
     pbar.close()
 
     print(f"\nTuning complete. Best per-coin results in {BEST_PARAMS_FILE}")
+    _save_best_results_table()
 
 
 
@@ -466,12 +577,16 @@ def main():
     print("Martingale Backtest  (equal-size averaging)")
     print(f"Capital ${INITIAL_CAPITAL:,}  |  Base risk {BASE_RISK*100}%/level  "
           f"|  Max levels {MAX_LEVELS}  |  Grid step 1/leverage={1/LEVERAGE*100:.1f}%")
-    print(f"Leverage {LEVERAGE}×  |  TP {TP_MARGIN_RATE*100:.0f}% margin profit ({TP_MARGIN_RATE/LEVERAGE*100:.1f}% price)  "
+    print(f"Leverage {LEVERAGE}x  |  TP {TP_MARGIN_RATE*100:.0f}% margin profit ({TP_MARGIN_RATE/LEVERAGE*100:.1f}% price)  "
           f"|  SL {SL_CAPITAL_RATE*100:.0f}% of capital  "
           f"|  BOLL({BOLL_PERIOD},{BOLL_STD}) on 1h  |  1d EMA{TREND_EMA_PERIOD} trend filter")
 
-    avg_return, coin_returns, coin_hold_ratios = run_once(verbose=True)
+    avg_return, coin_returns, coin_hold_ratios, coin_metrics = run_once(verbose=True)
     print(f"\nAvg return across coins: {avg_return*100:.1f}%")
+
+    hdr = (f"BOLL({BOLL_PERIOD},{BOLL_STD}) | Grid {GRID_STEP_RATE*100:.0f}% | "
+           f"TP {TP_MARGIN_RATE}x | SL {SL_CAPITAL_RATE*100:.0f}%cap | Lev {LEVERAGE}x")
+    print_summary_table("Martingale", hdr, coin_metrics)
 
     # ── Best params tracking (per-coin independent) ────────────────────────────
     best: dict = json.loads(BEST_PARAMS_FILE.read_text()) if BEST_PARAMS_FILE.exists() else {}
@@ -487,13 +602,13 @@ def main():
                 "max_hold_ratio": round(hold_ratio, 6),
                 "params": current_params(),
             }
-            tag = f"  ★ new best (prev {prev_ret*100:.1f}%)"
+            tag = f"  * new best (prev {prev_ret*100:.1f}%)"
         print(f"  {coin.upper()}: return {ret*100:.1f}%  |  hold ratio {hold_ratio*100:.1f}%"
               f"  |  best {best[coin]['best_return']*100:.1f}%{tag}")
 
     BEST_PARAMS_FILE.write_text(json.dumps(best, indent=2))
 
-    print(f"\nLogs → {RESULTS_DIR}/")
+    print(f"\nLogs -> {RESULTS_DIR}/")
 
 
 if __name__ == "__main__":

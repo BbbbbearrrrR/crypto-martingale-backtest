@@ -1,19 +1,27 @@
 {
   "btc": {
-    "best_return": 78.780215,
+    "best_return": 127.912236,
     "max_hold_ratio": 0.170479,
     "params": {
-      "LEVERAGE": 20,
+      "LEVERAGE": 10,
       "BASE_RISK": 0.02,
-      "DONCHIAN_PERIOD": 20,
+      "DONCHIAN_PERIOD": 10,
       "ATR_PERIOD": 14,
       "SL_MULT": 1.0,
       "TP_RR": 5.0,
-      "TREND_EMA_PERIOD": 50
+      "TREND_EMA_PERIOD": 50,
+      "ADX_PERIOD": 14,
+      "ADX_MIN": 20.0,
+      "VOL_MA_PERIOD": 20,
+      "VOL_MULT": 1.0,
+      "USE_TRAIL": false,
+      "TRAIL_TRIGGER_R": 1.0,
+      "TRAIL_MULT": 1.0,
+      "COOLDOWN_BARS": 0
     }
   },
   "eth": {
-    "best_return": 86.909926,
+    "best_return": 181.613328,
     "max_hold_ratio": 0.199635,
     "params": {
       "LEVERAGE": 10,
@@ -22,33 +30,57 @@
       "ATR_PERIOD": 14,
       "SL_MULT": 1.0,
       "TP_RR": 5.0,
-      "TREND_EMA_PERIOD": 50
+      "TREND_EMA_PERIOD": 50,
+      "ADX_PERIOD": 14,
+      "ADX_MIN": 25.0,
+      "VOL_MA_PERIOD": 20,
+      "VOL_MULT": 1.5,
+      "USE_TRAIL": false,
+      "TRAIL_TRIGGER_R": 1.0,
+      "TRAIL_MULT": 1.0,
+      "COOLDOWN_BARS": 0
     }
   },
   "sol": {
-    "best_return": 51.397139,
-    "max_hold_ratio": 0.164605,
+    "best_return": 187.433824,
+    "max_hold_ratio": 0.262527,
     "params": {
       "LEVERAGE": 20,
       "BASE_RISK": 0.02,
       "DONCHIAN_PERIOD": 10,
-      "ATR_PERIOD": 7,
+      "ATR_PERIOD": 14,
       "SL_MULT": 1.0,
       "TP_RR": 5.0,
-      "TREND_EMA_PERIOD": 50
+      "TREND_EMA_PERIOD": 50,
+      "ADX_PERIOD": 14,
+      "ADX_MIN": 0.0,
+      "VOL_MA_PERIOD": 20,
+      "VOL_MULT": 1.5,
+      "USE_TRAIL": false,
+      "TRAIL_TRIGGER_R": 1.0,
+      "TRAIL_MULT": 1.0,
+      "COOLDOWN_BARS": 3
     }
   },
   "hype": {
-    "best_return": 1.029137,
-    "max_hold_ratio": 0.061687,
+    "best_return": 1.522204,
+    "max_hold_ratio": 0.092531,
     "params": {
-      "LEVERAGE": 10,
+      "LEVERAGE": 20,
       "BASE_RISK": 0.02,
-      "DONCHIAN_PERIOD": 40,
+      "DONCHIAN_PERIOD": 20,
       "ATR_PERIOD": 14,
-      "SL_MULT": 1.5,
-      "TP_RR": 3.0,
-      "TREND_EMA_PERIOD": 50
+      "SL_MULT": 1.0,
+      "TP_RR": 5.0,
+      "TREND_EMA_PERIOD": 50,
+      "ADX_PERIOD": 14,
+      "ADX_MIN": 20.0,
+      "VOL_MA_PERIOD": 20,
+      "VOL_MULT": 1.5,
+      "USE_TRAIL": false,
+      "TRAIL_TRIGGER_R": 1.0,
+      "TRAIL_MULT": 1.0,
+      "COOLDOWN_BARS": 0
     }
   }
 }
