@@ -20,20 +20,20 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
 
-  header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; border-bottom: 1px solid var(--border); }
   header h1 { font-size: 18px; font-weight: 600; color: var(--blue); }
   #refresh-info { color: var(--muted); font-size: 12px; }
   #last-updated { color: var(--text); }
 
-  main { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+  main { padding: 12px 24px; display: flex; flex-direction: column; gap: 12px; }
 
   /* ── Strategy cards ── */
-  .strategy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 16px; }
+  .strategy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 10px; }
 
   .strategy-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .strategy-card.has-position { border-color: var(--yellow); }
 
-  .card-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .card-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--border); }
   .strategy-name { font-weight: 700; font-size: 15px; text-transform: capitalize; }
   .card-meta { display: flex; gap: 12px; align-items: center; }
   .total-cap { font-size: 18px; font-weight: 700; }
@@ -42,7 +42,7 @@
   .neg { color: var(--red); background: rgba(248,81,73,.12); }
   .zero { color: var(--muted); background: rgba(125,133,144,.1); }
 
-  .card-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .card-body { padding: 8px 16px; display: flex; flex-direction: column; gap: 8px; }
 
   /* coin rows */
   .coin-table { width: 100%; border-collapse: collapse; }
@@ -85,7 +85,7 @@
   .overview-bar {
     display: flex; flex-wrap: wrap; gap: 12px;
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 20px;
+    padding: 10px 20px;
   }
   .ov-item { display: flex; flex-direction: column; gap: 3px; min-width: 110px; }
   .ov-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
@@ -101,7 +101,7 @@
   }
 
   /* ── Main layout ── */
-  .main-col { display: flex; flex-direction: column; gap: 20px; }
+  .main-col { display: flex; flex-direction: column; gap: 12px; }
 
   /* ── Drawer toggle button ── */
   .drawer-btn {
@@ -735,7 +735,7 @@ document.getElementById('chart-coin-tabs').addEventListener('click', e => {
 renderTabs();
 loadTrades(activeTab);
 refresh();
-setInterval(refreshPrices, 10000);
+setInterval(refreshPrices, 2000);
 </script>
 </body>
 </html>
