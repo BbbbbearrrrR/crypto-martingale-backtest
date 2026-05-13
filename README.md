@@ -1,7 +1,7 @@
-# Crypto Futures Backtest Suite
+# Crypto Futures Trading Lab
 
-Perpetual futures strategy backtests on BTC / ETH / SOL / HYPE (Binance USD-M),
-with multiprocessing grid search and Calmar-optimised parameter tuning.
+Systematic crypto futures research workspace for BTC / ETH / SOL / HYPE (Binance USD-M),
+including backtests, 5m intraday experiments, parameter tuning, and paper trading.
 
 ---
 
@@ -61,13 +61,22 @@ Same breakout mechanics, redesigned for large-capital deployment with conservati
 ```
 .
 ├── fetch_btc_history.py          # Fetch OHLCV data from Binance via ccxt
-├── backtest_martingale.py        # Martingale strategy + auto-tune
-├── backtest_breakout.py          # Trend breakout strategy + auto-tune
-├── backtest_calmar.py            # Calmar-optimised breakout + auto-tune
+├── backtest/
+│   ├── backtest_martingale.py
+│   ├── backtest_breakout.py
+│   ├── backtest_calmar.py
+│   ├── backtest_regime.py
+│   └── backtest_5m_vwap.py
+├── paper/
+│   ├── paper_trade_calmar.py
+│   ├── paper_trade_breakout.py
+│   ├── paper_trade_martingale.py
+│   └── paper_trade_regime.py
 ├── data/
+│   ├── btc_futures_5m.csv
 │   ├── btc_futures_1h.csv
 │   ├── btc_futures_1d.csv
-│   └── ...                       # eth / sol / hype, 1h + 1d
+│   └── ...                       # eth / sol / hype, 5m + 1h + 1d
 └── results/
     ├── martingale/
     │   ├── best_params.json
@@ -75,9 +84,11 @@ Same breakout mechanics, redesigned for large-capital deployment with conservati
     ├── breakout/
     │   ├── best_params.json
     │   └── best_results_table.txt
-    └── calmar/
+    ├── calmar/
         ├── best_params.json
         └── best_results_table.txt
+    ├── regime/
+    └── vwap_5m/
 ```
 
 ---
@@ -97,16 +108,18 @@ pip install ccxt pandas numpy tqdm
 python fetch_btc_history.py
 
 # 2. Run any strategy — single pass (set AUTO_TUNE = False inside the file)
-python backtest_martingale.py
-python backtest_breakout.py
-python backtest_calmar.py
+python backtest/backtest_martingale.py
+python backtest/backtest_breakout.py
+python backtest/backtest_calmar.py
+python backtest/backtest_regime.py
+python backtest/backtest_5m_vwap.py
 
 # 3. Run grid search (set AUTO_TUNE = True — default)
 #    Uses multiprocessing (spawn), 16 workers by default
-python backtest_calmar.py
+python backtest/backtest_calmar.py
 
 # 4. Run in background, log to file
-nohup python -u backtest_calmar.py > results/calmar/run.log 2>&1 &
+nohup python -u backtest/backtest_calmar.py > results/calmar/run.log 2>&1 &
 echo PID=$!
 tail -f results/calmar/run.log
 ```
