@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-Paper Trading Engine — Calmar-Optimised Breakout
-=================================================
-Runs the EXACT same signal logic as backtest_calmar.py against live 1h candles.
+Paper Trading Engine — Dual-Regime Strategy
+===========================================
+Runs the EXACT same signal logic as backtest_regime.py against live 1h candles.
 No real money involved.
 
 Two modes:
   USE_TESTNET = True  → Binance Testnet (real order book, fake USDT)
   USE_TESTNET = False → Pure local simulation (no API key needed)
 
-State is persisted to paper_state.json so restarts don't lose positions.
-All fills are appended to paper_trades.csv.
+State is persisted to paper_state_regime.json so restarts don't lose positions.
+All fills are appended to paper_trades_regime.csv.
 
 Usage:
     # Set API keys for Testnet mode (optional for pure simulation)
     export BINANCE_API_KEY=your_key
     export BINANCE_API_SECRET=your_secret
 
-    python paper_trade.py           # normal start
-    python paper_trade.py --reset   # wipe state and start fresh
+    python paper_trade_regime.py           # normal start
+    python paper_trade_regime.py --reset   # wipe state and start fresh
 """
 
 # ── Must be set BEFORE numpy import ──────────────────────────────────────────
@@ -40,7 +40,7 @@ import ccxt
 import pandas as pd
 import numpy as np
 
-from backtest import backtest_calmar as bc   # reuse prepare(), compute_metrics(), _apply_params()
+from backtest import backtest_regime as br   # reuse prepare(), compute_metrics(), _apply_params()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 USE_TESTNET       = True        # True = Binance Testnet; False = pure simulation
@@ -49,14 +49,14 @@ WARMUP_1H         = 300        # 1h bars fetched for indicator warmup
 WARMUP_1D         = 500        # 1d bars fetched for EMA warmup
 SLEEP_BUFFER_SEC  = 15         # seconds to wait after candle close before processing
 
-STATE_FILE       = _HERE / "paper_state_calmar.json"
-TRADE_LOG_FILE   = _HERE / "paper_trades_calmar.csv"
-BEST_PARAMS_FILE = _ROOT / "results/calmar/best_params.json"
+STATE_FILE       = _HERE / "paper_state_regime.json"
+TRADE_LOG_FILE   = _HERE / "paper_trades_regime.csv"
+BEST_PARAMS_FILE = _ROOT / "results/regime/best_params.json"
 
 API_KEY    = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_API_SECRET", "")
 
-COINS = bc.COINS   # [("BTC/USDT:USDT", "btc"), ...]
+COINS = br.COINS   # [("BTC/USDT:USDT", "btc"), ...]
 
 
 # ── Exchange ──────────────────────────────────────────────────────────────────
@@ -106,6 +106,7 @@ def _default_state() -> dict:
         "pb_level":           0.0,
         "pb_atr":             0.0,
         "pb_bars_left":       0,
+        "pb_in_trend_regime": True,
         "open_time":          None,
         "trades":             [],    # completed fills (for metrics)
     }
@@ -135,14 +136,14 @@ def _log_trade(rec: dict):
 
 
 # ── Position helpers ──────────────────────────────────────────────────────────
-def _open_position(cs: dict, row: pd.Series, params: dict, ts):
+def _open_position(cs: dict, row: pd.Series, params: dict, ts, in_trend_regime: bool):
     d   = cs["direction"]
     ep  = cs["entry_price"]
     cap = cs["capital"]
     atr = float(row["atr"])
 
-    sl_mult  = params.get("SL_MULT", 1.5)
-    tp_rr    = params.get("TP_RR", 3.0)
+    sl_mult  = params.get("SL_MULT", 1.5) if in_trend_regime else params.get("MR_SL_MULT", 1.0)
+    tp_rr    = params.get("TP_RR", 3.0) if in_trend_regime else params.get("MR_TP_RR", 1.5)
     leverage = params.get("LEVERAGE", 3)
     sl_dist  = atr * sl_mult
 
@@ -223,7 +224,7 @@ def process_bar(cs: dict, row: pd.Series, params: dict, coin: str, ts) -> list:
                 frac    = params.get("PARTIAL_TP_FRAC", 0.5)
                 close_n = cs["notional_full"] * frac
                 pct     = (ptp - ep) / ep if d == "long" else (ep - ptp) / ep
-                pnl     = close_n * pct - close_n * bc.FEE_RATE * 2
+                pnl     = close_n * pct - close_n * br.FEE_RATE * 2
                 cap    += pnl
                 peak_cap = max(peak_cap, cap)
                 cs["notional"]     = cs["notional_full"] * (1.0 - frac)
@@ -256,7 +257,7 @@ def process_bar(cs: dict, row: pd.Series, params: dict, coin: str, ts) -> list:
                 xp, reason = float(row["close"]), "TIME"
 
             pct = (xp - ep) / ep if d == "long" else (ep - xp) / ep
-            pnl = max(nt * pct - nt * bc.FEE_RATE * 2, -cap)
+            pnl = max(nt * pct - nt * br.FEE_RATE * 2, -cap)
             cap     += pnl
             peak_cap = max(peak_cap, cap)
 
@@ -301,7 +302,7 @@ def process_bar(cs: dict, row: pd.Series, params: dict, coin: str, ts) -> list:
         if entered:
             cs["direction"]  = pb_dir
             cs["pb_pending"] = False
-            _open_position(cs, row, params, ts)
+            _open_position(cs, row, params, ts, bool(cs.get("pb_in_trend_regime", True)))
         elif cs["pb_bars_left"] <= 0:
             cs["pb_pending"] = False
 
@@ -327,26 +328,43 @@ def process_bar(cs: dict, row: pd.Series, params: dict, coin: str, ts) -> list:
         if not bool(row.get("vol_ok", True)):
             return records
 
-        trend_up    = bool(row.get("trend_up", False))
-        entry_long  = bool(row.get("entry_long", False))
-        entry_short = bool(row.get("entry_short", False))
+        adx_cur = float(row.get("adx", float("nan")))
+        if np.isnan(adx_cur):
+            adx_cur = 0.0
+        in_trend_regime = adx_cur >= params.get("REGIME_ADX_THRESHOLD", 20.0)
 
-        if   entry_long  and     trend_up: sig = "long"
-        elif entry_short and not trend_up: sig = "short"
-        else: return records
+        if in_trend_regime:
+            trend_up    = bool(row.get("trend_up", False))
+            entry_long  = bool(row.get("entry_long", False))
+            entry_short = bool(row.get("entry_short", False))
+
+            if   entry_long  and     trend_up: sig = "long"
+            elif entry_short and not trend_up: sig = "short"
+            else: return records
+        else:
+            if params.get("ADX_SLOPE_BARS", 0) > 0 and bool(row.get("adx_slope_ok", False)):
+                return records
+
+            if   bool(row.get("mr_entry_long",  False)): sig = "long"
+            elif bool(row.get("mr_entry_short", False)): sig = "short"
+            else: return records
 
         if params.get("USE_PULLBACK", False):
             lvl = float(row["don_upper"] if sig == "long" else row["don_lower"])
             cs.update({
-                "pb_pending":   True, "pb_direction": sig,
-                "pb_level":     lvl,  "pb_atr":       atr,
-                "pb_bars_left": params.get("PULLBACK_WINDOW", 6),
+                "pb_pending":          True,
+                "pb_direction":        sig,
+                "pb_level":            lvl,
+                "pb_atr":              atr,
+                "pb_bars_left":        params.get("PULLBACK_WINDOW", 6),
+                "pb_in_trend_regime":  in_trend_regime,
             })
-            print(f"    … PULLBACK {sig.upper():5s}  level={lvl:.4f}  @{str(ts)[:16]}")
+            mode = "TREND" if in_trend_regime else "MR"
+            print(f"    … PULLBACK {sig.upper():5s} [{mode:5s}]  level={lvl:.4f}  @{str(ts)[:16]}")
         else:
             cs["direction"]   = sig
             cs["entry_price"] = float(row["close"])
-            _open_position(cs, row, params, ts)
+            _open_position(cs, row, params, ts, in_trend_regime)
 
     return records
 
@@ -355,7 +373,7 @@ def process_bar(cs: dict, row: pd.Series, params: dict, coin: str, ts) -> list:
 def print_report(state: dict):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     print(f"\n{'═'*65}")
-    print(f"  PAPER PORTFOLIO  |  {now}")
+    print(f"  PAPER PORTFOLIO (Regime)  |  {now}")
     print(f"{'═'*65}")
     total_cap = 0.0
     for _, coin in COINS:
@@ -391,25 +409,29 @@ def run_cycle(ex, state: dict, best: dict):
             continue
 
         try:
-            # Set bc globals so prepare() uses correct params
-            bc._apply_params(params)
+            # Set br globals so prepare() uses correct params
+            br._apply_params(params)
 
             # Fetch candles (forming candle already stripped in fetch_ohlcv)
             df_1h = fetch_ohlcv(ex, symbol, "1h", WARMUP_1H)
             df_1d = fetch_ohlcv(ex, symbol, "1d", WARMUP_1D)
 
             # Compute indicators
-            df  = bc.prepare(df_1h, df_1d)
+            df  = br.prepare(df_1h, df_1d)
             row = df.iloc[-1]
             ts  = df.index[-1]
 
             adx_str  = f"{row.get('adx', float('nan')):.1f}"
+            in_trend_regime = float(row.get("adx", float("nan"))) >= params.get("REGIME_ADX_THRESHOLD", 20.0)
+            mode     = "TREND" if in_trend_regime else "MR"
             trend    = "↑" if bool(row.get("trend_up", False)) else "↓"
             vol_ok   = "V✓" if bool(row.get("vol_ok", True)) else "V✗"
             el = "L✓" if bool(row.get("entry_long", False))  else "  "
             es = "S✓" if bool(row.get("entry_short", False)) else "  "
+            ml = "L✓" if bool(row.get("mr_entry_long", False))  else "  "
+            ms = "S✓" if bool(row.get("mr_entry_short", False)) else "  "
             print(f"  [{coin.upper()}]  close={row['close']:.4f}"
-                  f"  adx={adx_str}  trend={trend}  {vol_ok}  {el} {es}")
+                f"  adx={adx_str}  mode={mode:5s}  trend={trend}  {vol_ok}  T:{el} {es}  MR:{ml} {ms}")
 
             process_bar(state[coin], row, params, coin, ts)
 
@@ -435,7 +457,7 @@ def main():
     reset = "--reset" in sys.argv
 
     print("╔═══════════════════════════════════════════════════════════╗")
-    print("║   PAPER TRADING ENGINE — Calmar-Optimised Breakout        ║")
+    print("║   PAPER TRADING ENGINE — Dual-Regime Strategy             ║")
     print(f"║   Testnet : {str(USE_TESTNET):<49}║")
     print(f"║   Capital : ${INITIAL_CAPITAL:,.0f} / coin{' '*(44 - len(f'{INITIAL_CAPITAL:,.0f}'))}║")
     print(f"║   State   : {str(STATE_FILE.name):<49}║")

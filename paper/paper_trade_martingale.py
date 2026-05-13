@@ -32,14 +32,14 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
-if str(_ROOT / "backtest") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "backtest"))
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import ccxt
 import pandas as pd
 import numpy as np
 
-import backtest_martingale as bm   # reuse prepare(), Martin class, _apply_params()
+from backtest import backtest_martingale as bm   # reuse prepare(), Martin class, _apply_params()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 USE_TESTNET       = True
