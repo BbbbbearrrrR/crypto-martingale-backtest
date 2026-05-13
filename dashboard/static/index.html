@@ -216,7 +216,10 @@
     <img src="/Logo.png" alt="logo" style="height:52px;width:52px;object-fit:contain;" />
     <h1>Paper Trading Dashboard</h1>
   </div>
-  <div id="refresh-info">Prices refresh every 10s &middot; Last updated: <span id="last-updated">—</span></div>
+  <div style="display:flex;align-items:center;gap:18px">
+    <span id="utc-clock" style="font-size:13px;color:#8b949e;font-family:monospace;letter-spacing:0.5px"></span>
+    <div id="refresh-info">Prices refresh every 2s &middot; Last updated: <span id="last-updated">—</span></div>
+  </div>
 </header>
 
 <main>
@@ -724,6 +727,17 @@ function closeDrawer() {
 initChart();
 loadCandles('btc');
 setInterval(() => loadCandles(_activeChartCoin), 60000);
+
+// UTC clock
+function tickClock() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  document.getElementById('utc-clock').textContent =
+    `UTC ${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} ` +
+    `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}`;
+}
+tickClock();
+setInterval(tickClock, 1000);
 
 // Chart coin tab switching
 document.getElementById('chart-coin-tabs').addEventListener('click', e => {
