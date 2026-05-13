@@ -189,16 +189,26 @@ def api_trades(strategy: str):
     return jsonify(trades)
 
 
-@app.route("/api/candles/btc")
-def api_candles_btc():
-    """Return last 300 1h BTC candles fetched live from Binance via ccxt."""
+_COIN_SYMBOLS = {
+    "btc":  "BTC/USDT:USDT",
+    "eth":  "ETH/USDT:USDT",
+    "sol":  "SOL/USDT:USDT",
+    "hype": "HYPE/USDT:USDT",
+}
+
+@app.route("/api/candles/<coin>")
+def api_candles(coin: str):
+    """Return last 300 1h candles for the given coin fetched live from Binance."""
+    symbol = _COIN_SYMBOLS.get(coin.lower())
+    if not symbol:
+        return jsonify({"error": "unknown coin"}), 404
     try:
-        ohlcv = _exchange_pub.fetch_ohlcv("BTC/USDT:USDT", timeframe="1h", limit=300)
+        ohlcv = _exchange_pub.fetch_ohlcv(symbol, timeframe="1h", limit=300)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
     result = [
         {
-            "time":   row[0] // 1000,   # ms → s
+            "time":   row[0] // 1000,
             "open":   row[1],
             "high":   row[2],
             "low":    row[3],

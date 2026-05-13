@@ -172,6 +172,20 @@
   .trade-card-meta span b { color: var(--text); font-weight: 600; }
   .trade-card-time { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
+  /* ── Chart coin tabs ── */
+  .chart-coin-tabs {
+    display: flex; gap: 4px; padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chart-tab {
+    padding: 4px 14px; border-radius: 16px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600;
+    transition: all .15s;
+  }
+  .chart-tab:hover { border-color: var(--blue); color: var(--blue); }
+  .chart-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
   /* ── BTC 1H Chart ── */
   .chart-section {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
@@ -253,7 +267,7 @@
     <div class="chart-section">
       <div class="chart-header">
         <div style="display:flex;align-items:center;gap:10px">
-          <span class="chart-title">BTC / USDT · 1H</span>
+          <span class="chart-title" id="chart-title">BTC / USDT &middot; 1H</span>
           <span class="chart-price-change" id="chart-change"></span>
         </div>
         <div class="chart-meta">
@@ -263,6 +277,12 @@
           <span>C <b id="chart-close">—</b></span>
         </div>
         <span class="chart-price" id="chart-live-price">—</span>
+      </div>
+      <div class="chart-coin-tabs" id="chart-coin-tabs">
+        <button class="chart-tab active" data-coin="btc">BTC</button>
+        <button class="chart-tab" data-coin="eth">ETH</button>
+        <button class="chart-tab" data-coin="sol">SOL</button>
+        <button class="chart-tab" data-coin="hype">HYPE</button>
       </div>
       <div id="btc-chart-container"></div>
     </div>
@@ -297,6 +317,7 @@ let summaryCache = {};
 let pricesCache  = {};
 let lastCycleKey = "";  // track last seen cycle timestamps to detect new cycles
 let _chart = null, _candleSeries = null, _volSeries = null, _priceLines = [];
+let _activeChartCoin = 'btc';
 const INITIAL_CAP_PER_COIN = 10000;
 const TOTAL_INITIAL = 3 * 4 * INITIAL_CAP_PER_COIN; // 3 strategies × 4 coins
 
@@ -627,9 +648,10 @@ function initChart() {
   }).observe(container);
 }
 
-async function loadCandles() {
+async function loadCandles(coin) {
+  coin = coin || _activeChartCoin;
   try {
-    const res = await fetch('/api/candles/btc');
+    const res = await fetch(`/api/candles/${coin}`);
     const candles = await res.json();
     if (!candles.length) return;
     _candleSeries.setData(candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
@@ -648,12 +670,13 @@ async function loadCandles() {
     const chgEl = document.getElementById('chart-change');
     chgEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
     chgEl.style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('chart-title').textContent = coin.toUpperCase() + ' / USDT \u00b7 1H';
     _chart.timeScale().fitContent();
   } catch(e) { console.error('candle error', e); }
 }
 
 function updateChartPrice() {
-  const p = pricesCache['btc'];
+  const p = pricesCache[_activeChartCoin];
   const el = document.getElementById('chart-live-price');
   if (el && p != null) {
     el.textContent = '$' + p.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -664,9 +687,10 @@ function updateChartPositions() {
   if (!_candleSeries) return;
   _priceLines.forEach(pl => { try { _candleSeries.removePriceLine(pl); } catch(e) {} });
   _priceLines = [];
+  const coin = _activeChartCoin;
   STRATEGIES.forEach(strat => {
     const s = summaryCache[strat]; if (!s) return;
-    const c = s.coins['btc'] || {}; if (!c.direction) return;
+    const c = s.coins[coin] || {}; if (!c.direction) return;
     const add = (price, color, title) => price && _priceLines.push(
       _candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title })
     );
@@ -693,8 +717,20 @@ function closeDrawer() {
 }
 
 initChart();
-loadCandles();
-setInterval(loadCandles, 60000);
+loadCandles('btc');
+setInterval(() => loadCandles(_activeChartCoin), 60000);
+
+// Chart coin tab switching
+document.getElementById('chart-coin-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.chart-tab');
+  if (!btn) return;
+  document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _activeChartCoin = btn.dataset.coin;
+  loadCandles(_activeChartCoin);
+  updateChartPrice();
+  updateChartPositions();
+});
 
 renderTabs();
 loadTrades(activeTab);
