@@ -100,9 +100,10 @@ def prepare(df_5m: pd.DataFrame) -> pd.DataFrame:
     ], axis=1).max(axis=1)
     df["atr"] = tr.ewm(span=ATR_PERIOD, adjust=False).mean()
 
-    # 5m EMA trend filter (shift(1) to avoid look-ahead)
-    df["trend_ema"] = df["close"].ewm(span=TREND_EMA_PERIOD, adjust=False).mean().shift(1)
-    df["trend_up"]  = df["close"] > df["trend_ema"]
+    # 5m EMA trend filter: use EMA slope direction (shift(1) to avoid look-ahead)
+    ema_raw = df["close"].ewm(span=TREND_EMA_PERIOD, adjust=False).mean()
+    df["trend_ema"] = ema_raw.shift(1)
+    df["trend_up"]  = ema_raw.shift(1) > ema_raw.shift(2)  # EMA rising = bullish
 
     # Entry signals: close crosses the band (prev bar inside, this bar outside)
     prev_close = df["close"].shift(1)
