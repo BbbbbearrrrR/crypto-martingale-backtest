@@ -215,8 +215,6 @@ def process_bar(cs: dict, row: pd.Series, params: dict, coin: str, ts) -> list:
             return records
         if pd.isna(row.get("bb_lower")) or pd.isna(row.get("bb_upper")):
             return records
-        if pd.isna(row.get("swing_low")) or pd.isna(row.get("swing_high")):
-            return records
 
         trend_up    = bool(row.get("trend_up", False))
         go_long     = bool(row.get("entry_long", False))  and trend_up
@@ -228,14 +226,15 @@ def process_bar(cs: dict, row: pd.Series, params: dict, coin: str, ts) -> list:
         d   = "long" if go_long else "short"
         ep  = float(row["close"])
 
+        sl_tp_ratio = params.get("SL_TP_RATIO", 0.5)
         if d == "long":
-            sl  = float(row["swing_low"])  - atr * params.get("SL_BUFFER_ATR", 0.0)
             tp1 = float(row["bb_mid"])
             tp2 = float(row["bb_upper"])
+            sl  = ep - abs(tp1 - ep) * sl_tp_ratio
         else:
-            sl  = float(row["swing_high"]) + atr * params.get("SL_BUFFER_ATR", 0.0)
             tp1 = float(row["bb_mid"])
             tp2 = float(row["bb_lower"])
+            sl  = ep + abs(tp1 - ep) * sl_tp_ratio
 
         # Sanity checks
         if d == "long"  and (tp1 <= ep or tp2 <= ep):

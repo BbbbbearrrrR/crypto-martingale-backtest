@@ -3,7 +3,7 @@ Bollinger Band Scalping Backtest (5m)
 ======================================
 Entry  : 5m close crosses below lower band → long  (only if close > EMA trend)
          5m close crosses above upper band → short (only if close < EMA trend)
-SL     : swing low/high of last SWING_PERIOD bars ± ATR × SL_BUFFER_ATR
+SL     : entry ± SL_TP_RATIO × |bb_mid - entry| (fixed R:R)
 TP     : USE_PARTIAL_TP=True  → TP1=bb_mid (50%), TP2=opposite band (50%)
          USE_PARTIAL_TP=False → TP=bb_mid (full)
 Size   : risk_amount = capital × BASE_RISK
@@ -44,8 +44,7 @@ BB_PERIOD       = 20       # Bollinger Band rolling window
 BB_STD          = 2.0      # standard deviation multiplier
 
 ATR_PERIOD      = 14
-SWING_PERIOD    = 30       # bars to look back for swing high/low as SL reference
-SL_BUFFER_ATR   = 0.3      # extra ATR buffer beyond swing point
+SL_TP_RATIO     = 0.5      # SL distance = SL_TP_RATIO × TP1 distance (bb_mid - entry)
 
 TREND_EMA_PERIOD = 200     # 5m EMA for trend direction filter
 
@@ -60,13 +59,12 @@ TUNE_SPACE = {
     "BASE_RISK":        [0.01, 0.02],
     "BB_PERIOD":        [10, 20, 40],
     "BB_STD":           [1.5, 2.0, 2.5],
-    "SWING_PERIOD":     [20, 30, 50, 72],   # 5m bars: 100min / 150min / 250min / 6h
-    "SL_BUFFER_ATR":    [0.0, 0.2, 0.5, 1.0],
+    "SL_TP_RATIO":      [0.3, 0.5, 0.75, 1.0, 1.5],
     "TREND_EMA_PERIOD": [50, 100, 200],
     "USE_PARTIAL_TP":   [True, False],
     "MAX_HOLD_BARS":    [24, 48, 96],
 }
-# Total combinations per coin: 2x2x3x3x4x4x3x2x3 = 5184
+# Total combinations per coin: 2x2x3x3x5x3x2x3 = 6480
 
 COINS = [
     ("BTC/USDT:USDT", "btc"),
@@ -99,10 +97,6 @@ def prepare(df_5m: pd.DataFrame) -> pd.DataFrame:
         (df["low"]  - prev).abs(),
     ], axis=1).max(axis=1)
     df["atr"] = tr.ewm(span=ATR_PERIOD, adjust=False).mean()
-
-    # Swing high/low for SL reference (shift(1) to avoid look-ahead)
-    df["swing_low"]  = df["low"].rolling(SWING_PERIOD).min().shift(1)
-    df["swing_high"] = df["high"].rolling(SWING_PERIOD).max().shift(1)
 
     # 5m EMA trend filter (shift(1) to avoid look-ahead)
     df["trend_ema"] = df["close"].ewm(span=TREND_EMA_PERIOD, adjust=False).mean().shift(1)
@@ -146,7 +140,7 @@ def run_backtest(symbol: str, coin: str):
     partial_done  = False
     bars_held     = 0
 
-    warmup = max(BB_PERIOD, ATR_PERIOD, SWING_PERIOD, TREND_EMA_PERIOD) + 2
+    warmup = max(BB_PERIOD, ATR_PERIOD, TREND_EMA_PERIOD) + 2
 
     for i in range(warmup, len(df)):
         row = df.iloc[i]
@@ -216,8 +210,6 @@ def run_backtest(symbol: str, coin: str):
                 continue
             if pd.isna(row["bb_lower"]) or pd.isna(row["bb_upper"]):
                 continue
-            if pd.isna(row["swing_low"]) or pd.isna(row["swing_high"]):
-                continue
 
             go_long  = bool(row["entry_long"])  and bool(row["trend_up"])
             go_short = bool(row["entry_short"]) and not bool(row["trend_up"])
@@ -226,15 +218,15 @@ def run_backtest(symbol: str, coin: str):
                 direction   = "long" if go_long else "short"
                 entry_price = row["close"]
 
-                # SL: swing high/low + ATR buffer
+                # SL: fixed R:R based on TP1 distance
                 if direction == "long":
-                    sl_price  = row["swing_low"]  - atr * SL_BUFFER_ATR
                     tp1_price = row["bb_mid"]
                     tp2_price = row["bb_upper"]
+                    sl_price  = entry_price - abs(tp1_price - entry_price) * SL_TP_RATIO
                 else:
-                    sl_price  = row["swing_high"] + atr * SL_BUFFER_ATR
                     tp1_price = row["bb_mid"]
                     tp2_price = row["bb_lower"]
+                    sl_price  = entry_price + abs(tp1_price - entry_price) * SL_TP_RATIO
 
                 # TP must be on the correct side
                 if direction == "long"  and (tp1_price <= entry_price or tp2_price <= entry_price):
@@ -293,7 +285,7 @@ def current_params() -> dict:
         "LEVERAGE": LEVERAGE, "BASE_RISK": BASE_RISK,
         "BB_PERIOD": BB_PERIOD, "BB_STD": BB_STD,
         "ATR_PERIOD": ATR_PERIOD,
-        "SWING_PERIOD": SWING_PERIOD, "SL_BUFFER_ATR": SL_BUFFER_ATR,
+        "SL_TP_RATIO": SL_TP_RATIO,
         "TREND_EMA_PERIOD": TREND_EMA_PERIOD,
         "USE_PARTIAL_TP": USE_PARTIAL_TP,
         "MAX_HOLD_BARS": MAX_HOLD_BARS,
