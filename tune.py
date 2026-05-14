@@ -36,7 +36,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent
 
-STRATEGIES = ["breakout", "calmar", "regime", "martingale"]
+STRATEGIES = ["breakout", "calmar", "regime", "martingale", "boll_scalp"]
 
 ALL_COINS = ["btc", "eth", "sol", "hype", "sui"]
 
@@ -45,6 +45,7 @@ RESULTS_DIRS = {
     "calmar":     _ROOT / "results/calmar",
     "regime":     _ROOT / "results/regime",
     "martingale": _ROOT / "results/martingale",
+    "boll_scalp": _ROOT / "results/boll_scalp",
 }
 
 
@@ -99,6 +100,7 @@ def run_tune(strategies: list, coin_filter: list | None, n_trials: int = 1000):
         "calmar":     "backtest.backtest_calmar",
         "regime":     "backtest.backtest_regime",
         "martingale": "backtest.backtest_martingale",
+        "boll_scalp": "backtest.backtest_boll_scalp",
     }
 
     total = len(strategies)

@@ -97,6 +97,7 @@ def _default_state() -> dict:
         "trail_sl":           0.0,
         "cooldown_remaining": 0,
         "open_time":          None,
+        "last_processed_ts":  None,
         "trades":             [],
     }
 
@@ -297,18 +298,31 @@ def run_cycle(ex, state: dict, best: dict):
             df_1d = fetch_ohlcv(ex, symbol, "1d", WARMUP_1D)
 
             df  = bb.prepare(df_1h, df_1d)
-            row = df.iloc[-1]
-            ts  = df.index[-1]
+            cs  = state[coin]
 
-            adx_str = f"{row.get('adx', float('nan')):.1f}"
-            trend   = "↑" if bool(row.get("trend_up", False)) else "↓"
-            vol_ok  = "V✓" if bool(row.get("vol_ok", True)) else "V✗"
-            el = "L✓" if bool(row.get("entry_long", False))  else "  "
-            es = "S✓" if bool(row.get("entry_short", False)) else "  "
-            print(f"  [{coin.upper()}]  close={row['close']:.4f}"
-                  f"  adx={adx_str}  trend={trend}  {vol_ok}  {el} {es}")
+            # Replay all candles missed while process was down
+            last_ts = cs.get("last_processed_ts")
+            if last_ts:
+                missed = df[df.index > pd.Timestamp(last_ts, tz="UTC")]
+                if len(missed) == 0:
+                    missed = df.iloc[-1:]
+            else:
+                missed = df.iloc[-1:]
 
-            process_bar(state[coin], row, params, coin, ts)
+            if len(missed) > 1:
+                print(f"  [{coin.upper()}] ⚠ replaying {len(missed)} missed candles "
+                      f"from {str(missed.index[0])[:16]}")
+
+            for ts, row in missed.iterrows():
+                adx_str = f"{row.get('adx', float('nan')):.1f}"
+                trend   = "↑" if bool(row.get("trend_up", False)) else "↓"
+                vol_ok  = "V✓" if bool(row.get("vol_ok", True)) else "V✗"
+                el = "L✓" if bool(row.get("entry_long", False))  else "  "
+                es = "S✓" if bool(row.get("entry_short", False)) else "  "
+                print(f"  [{coin.upper()}]  close={row['close']:.4f}"
+                      f"  adx={adx_str}  trend={trend}  {vol_ok}  {el} {es}")
+                process_bar(cs, row, params, coin, ts)
+                cs["last_processed_ts"] = str(ts)
 
         except ccxt.NetworkError as e:
             print(f"  [{coin.upper()}] network error: {e}  — will retry next cycle")
@@ -318,6 +332,57 @@ def run_cycle(ex, state: dict, best: dict):
 
     save_state(state)
     print_report(state)
+
+
+# ── Intrabar SL monitor ─────────────────────────────────────────────────────
+INTRABAR_CHECK_INTERVAL = 60  # seconds between live SL checks
+
+def check_intrabar_sl(ex, state: dict, best: dict):
+    """Check live price vs SL for all open positions between candle cycles."""
+    changed = False
+    for symbol, coin in COINS:
+        cs = state[coin]
+        if not cs.get("in_trade"):
+            continue
+        try:
+            raw    = ex.fetch_ohlcv(symbol, "1h", limit=1)
+            f_high = float(raw[-1][2])
+            f_low  = float(raw[-1][3])
+            d      = cs["direction"]
+            sp     = cs["sl_price"]
+            ep     = cs["entry_price"]
+            nt     = cs["notional"]
+            cap    = cs["capital"]
+
+            hit_sl = (f_low <= sp if d == "long" else f_high >= sp)
+            if not hit_sl:
+                continue
+
+            pct = (sp - ep) / ep if d == "long" else (ep - sp) / ep
+            pnl = max(nt * pct - nt * bb.FEE_RATE * 2, -cap)
+            cap += pnl
+            ts_now = datetime.now(timezone.utc)
+
+            rec = dict(timestamp=str(ts_now), coin=coin, direction=d,
+                       entry_price=ep, exit_price=round(sp, 6),
+                       notional=round(nt, 4), exit_reason="SL",
+                       pnl_usdt=round(pnl, 4), capital=round(cap, 4))
+            cs["trades"].append(rec)
+            _log_trade(rec)
+            print(f"  \u26a1 INTRABAR SL  {coin.upper():5s}  {d.upper()}"
+                  f"  high={f_high:.4f}  low={f_low:.4f}  sl={sp:.4f}  pnl=${pnl:+.2f}  cap=${cap:.0f}")
+
+            cs["capital"]  = cap
+            cs["peak_cap"] = max(cs["peak_cap"], cap)
+            cs.update({"in_trade": False, "trail_active": False, "open_time": None,
+                       "bars_in_trade": 0, "partial_done": False})
+            params = best.get(coin, {}).get("params", {})
+            cs["cooldown_remaining"] = params.get("COOLDOWN_BARS", 0)
+            changed = True
+        except Exception as e:
+            print(f"  [{coin.upper()}] intrabar check error: {e}")
+    if changed:
+        save_state(state)
 
 
 # ── Scheduling ────────────────────────────────────────────────────────────────
@@ -356,8 +421,14 @@ def main():
     while True:
         wait = seconds_to_next_candle()
         nxt  = (datetime.now(timezone.utc) + timedelta(seconds=wait)).strftime("%H:%M:%S UTC")
-        print(f"  ⏱  Next cycle in {wait/60:.1f} min  ({nxt})")
-        time.sleep(wait)
+        print(f"  \u23f1  Next cycle in {wait/60:.1f} min  ({nxt})")
+        slept = 0
+        while slept < wait - 1:
+            chunk  = min(INTRABAR_CHECK_INTERVAL, wait - slept)
+            time.sleep(chunk)
+            slept += chunk
+            if slept < wait - 1:
+                check_intrabar_sl(ex, state, best)
         best = json.loads(BEST_PARAMS_FILE.read_text())
         run_cycle(ex, state, best)
 

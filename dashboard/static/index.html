@@ -30,7 +30,7 @@
   /* ── Strategy cards: always 2-column grid ── */
   .strategy-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
-  .strategy-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .strategy-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; min-height: 260px; }
   .strategy-card.has-position { border-color: var(--yellow); }
 
   .card-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--border); }
@@ -46,9 +46,9 @@
 
   /* coin rows */
   .coin-table { width: 100%; border-collapse: collapse; }
-  .coin-table th { color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 3px 5px; text-align: right; }
+  .coin-table th { color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 3px 5px; text-align: right; height: 24px; }
   .coin-table th:first-child { text-align: left; }
-  .coin-table td { padding: 3px 5px; text-align: right; border-top: 1px solid var(--border); }
+  .coin-table td { padding: 3px 5px; text-align: right; border-top: 1px solid var(--border); height: 40px; vertical-align: middle; }
   .coin-table td:first-child { text-align: left; font-weight: 600; }
   .coin-name { display: flex; align-items: center; gap: 6px; }
   .badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 700; text-transform: uppercase; }
@@ -110,6 +110,7 @@
   .chart-section {
     display: flex;
     flex-direction: column;
+    align-self: stretch;
   }
   #btc-chart-container { flex: 1; min-height: 0; }
   @media (max-width: 1100px) {
@@ -270,7 +271,7 @@
     <div class="ov-item">
       <div class="ov-label">Open Positions</div>
       <div class="ov-value" id="ov-pos">—</div>
-      <div class="ov-sub">/ 20 slots</div>
+      <div class="ov-sub" id="ov-slots">/ — slots</div>
     </div>
     <div class="ov-divider"></div>
     <div class="ov-item">
@@ -333,18 +334,22 @@
 </aside>
 
 <script>
-const STRATEGIES = ["breakout", "calmar", "regime", "martingale"];
+const STRATEGIES = ["breakout", "calmar", "regime", "martingale", "boll_scalp"];
 const COINS      = ["btc", "eth", "sol", "hype", "sui"];
 const COIN_COLORS = { btc: "#f7931a", eth: "#627eea", sol: "#9945ff", hype: "#00d4aa", sui: "#4da2ff" };
+// coins per strategy (boll_scalp skips BTC)
+const STRATEGY_COINS = {};
+STRATEGIES.forEach(s => STRATEGY_COINS[s] = COINS);
+STRATEGY_COINS["boll_scalp"] = ["eth", "sol", "hype", "sui"];
 
 let activeTab = "breakout";
 let summaryCache = {};
 let pricesCache  = {};
 let lastCycleKey = "";  // track last seen cycle timestamps to detect new cycles
-let _chart = null, _candleSeries = null, _volSeries = null, _priceLines = [];
+let _chart = null, _candleSeries = null, _volSeries = null, _bbUpper = null, _bbMid = null, _bbLower = null, _priceLines = [];
 let _activeChartCoin = 'btc';
 const INITIAL_CAP_PER_COIN = 10000;
-const TOTAL_INITIAL = STRATEGIES.length * COINS.length * INITIAL_CAP_PER_COIN;
+const TOTAL_INITIAL = STRATEGIES.reduce((sum, s) => sum + STRATEGY_COINS[s].length * INITIAL_CAP_PER_COIN, 0);
 
 /* ── Overview ── */
 function computeOverview(summaryData, prices) {
@@ -353,7 +358,7 @@ function computeOverview(summaryData, prices) {
   STRATEGIES.forEach(strat => {
     const s = summaryData[strat];
     if (!s) return;
-    COINS.forEach(coin => {
+    STRATEGY_COINS[strat].forEach(coin => {
       const c = s.coins[coin] || {};
       totalCurrent += c.capital ?? INITIAL_CAP_PER_COIN;
       const cur = prices[coin];
@@ -404,7 +409,9 @@ function renderOverview(ov) {
   document.getElementById("ov-return-sub").textContent = (ov.combined >= 0 ? "+" : "") + "$" + ov.combined.toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});
   document.getElementById("ov-return-sub").style.color = cls(ov.combined);
 
+  const TOTAL_SLOTS = STRATEGIES.reduce((sum, s) => sum + STRATEGY_COINS[s].length, 0);
   document.getElementById("ov-pos").textContent = ov.openPos;
+  document.getElementById("ov-slots").textContent = `/ ${TOTAL_SLOTS} slots`;
   document.getElementById("ov-trades").textContent = ov.totalTrades;
   const wrEl = document.getElementById("ov-winrate");
   wrEl.textContent = ov.winRate != null ? `Win rate ${ov.winRate.toFixed(1)}%` : "";
@@ -447,7 +454,7 @@ function renderSummary(data) {
     const hasPos = s.open_positions > 0;
     const retCls = retClass(s.total_return_pct);
 
-    const coinRows = COINS.map(coin => {
+    const coinRows = STRATEGY_COINS[strat].map(coin => {
       const c = s.coins[coin] || {};
       const ret = c.return_pct ?? 0;
       const upnl = c.unrealized_pnl;
@@ -468,6 +475,7 @@ function renderSummary(data) {
             data-direction="${c.direction || ''}"
             data-capital="${c.capital || 10000}">${upnlHtml}</td>
         <td style="color:var(--muted);font-size:12px">${c.entry_price ? c.entry_price.toLocaleString('en-US', {maximumFractionDigits:4}) : "—"}</td>
+        <td style="color:${c.sl_price ? 'var(--red)' : 'var(--muted)'};font-size:12px">${c.sl_price ? c.sl_price.toLocaleString('en-US', {maximumFractionDigits:4}) : "—"}</td>
         <td data-curprice="${strat}-${coin}" style="font-size:12px">—</td>
       </tr>`;
     }).join("");
@@ -499,7 +507,7 @@ function renderSummary(data) {
       <div class="card-body">
         <table class="coin-table">
           <thead><tr>
-            <th>Coin</th><th>Capital</th><th>Return</th><th>Unrealised</th><th>Entry</th><th>Price</th>
+            <th>Coin</th><th>Capital</th><th>Return</th><th>Unrealised</th><th>Entry</th><th>SL</th><th>Price</th>
           </tr></thead>
           <tbody>${coinRows}</tbody>
         </table>
@@ -508,7 +516,6 @@ function renderSummary(data) {
           ${nci?.at ? `<span>Next in <b id="countdown-${strat}">…</b></span>` : ""}
           <span>Positions <b>${s.open_positions}</b></span>
         </div>
-        ${signalHtml}
       </div>`;
     grid.appendChild(card);
   });
@@ -557,8 +564,12 @@ async function loadTrades(strategy) {
             </div>
           </div>`;
         }
-        // Other strategies: single entry
+        // Other strategies: single entry (boll_scalp has tp1+tp2)
         const size = (p.notional||0).toLocaleString('en-US',{maximumFractionDigits:2});
+        const tp1Html = p.tp1_price
+          ? `<span><b>TP1</b> ${p.tp1_price.toLocaleString('en-US',{maximumFractionDigits:4})}${p.partial_done ? ' ✓' : ''}</span>
+             <span><b>TP2</b> ${(p.tp_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>`
+          : `<span><b>TP</b> ${(p.tp_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>`;
         return `<div class="trade-card">
           <div class="trade-card-top">
             <span class="trade-card-coin">${dot}${coin} <span class="badge ${dirCls}">${dir}</span></span>
@@ -567,7 +578,7 @@ async function loadTrades(strategy) {
           <div class="trade-card-meta">
             <span><b>Entry</b> ${(p.entry_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>
             <span><b>SL</b> ${(p.sl_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>
-            <span><b>TP</b> ${(p.tp_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>
+            ${tp1Html}
           </div>
           <div class="trade-card-time">${p.open_time ?? ''}</div>
         </div>`;
@@ -708,18 +719,20 @@ async function refreshPrices() {
     console.error("price fetch error", e);
   }
 
-  // Detect if any strategy has a new cycle — if so, do full refresh
+  // Detect state changes (SL/TP/new trades) via mtime — reacts within 2s
   try {
     const res2 = await fetch("/api/summary");
     const fresh = await res2.json();
-    const cycleKey = STRATEGIES.map(s => fresh[s]?.last_cycle).join("|");
-    if (cycleKey !== lastCycleKey) {
-      lastCycleKey = cycleKey;
+    const changeKey = STRATEGIES.map(s =>
+      (fresh[s]?.state_mtime ?? 0) + "|" + (fresh[s]?.last_cycle ?? "")
+    ).join("#");
+    if (changeKey !== lastCycleKey) {
+      lastCycleKey = changeKey;
       summaryCache = fresh;
       renderSummary(fresh);
       renderOverview(computeOverview(fresh, prices));
       document.getElementById("last-updated").textContent =
-        new Date().toLocaleTimeString("en") + " ✓new cycle";
+        new Date().toLocaleTimeString("en") + " ✓updated";
       // re-run price overlay immediately after re-render
       await refreshPricesOnly(prices);
     }
@@ -748,7 +761,7 @@ async function refreshPricesOnly(prices) {
 function initChart() {
   const container = document.getElementById('btc-chart-container');
   _chart = LightweightCharts.createChart(container, {
-    height: 460,
+    height: container.offsetHeight || 600,
     layout: { background: { color: '#161b22' }, textColor: '#e6edf3' },
     grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -766,8 +779,12 @@ function initChart() {
     scaleMargins: { top: 0.82, bottom: 0 },
   });
   _chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  const bbLineOpts = { lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
+  _bbUpper = _chart.addLineSeries({ ...bbLineOpts, color: 'rgba(88,166,255,0.5)' });
+  _bbMid   = _chart.addLineSeries({ ...bbLineOpts, color: 'rgba(88,166,255,0.8)', lineWidth: 1 });
+  _bbLower = _chart.addLineSeries({ ...bbLineOpts, color: 'rgba(88,166,255,0.5)' });
   new ResizeObserver(() => {
-    if (_chart) _chart.applyOptions({ width: container.offsetWidth });
+    if (_chart) _chart.applyOptions({ width: container.offsetWidth, height: container.offsetHeight || 600 });
   }).observe(container);
 }
 
@@ -782,6 +799,19 @@ async function loadCandles(coin) {
       time: c.time, value: c.volume,
       color: c.close >= c.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)',
     })));
+    // ── Bollinger Bands (20, 2) ──
+    const BB_N = 20, BB_K = 2.0;
+    const closes = candles.map(c => c.close);
+    const bbData = candles.map((c, i) => {
+      if (i < BB_N - 1) return null;
+      const slice = closes.slice(i - BB_N + 1, i + 1);
+      const mean = slice.reduce((a, b) => a + b, 0) / BB_N;
+      const std  = Math.sqrt(slice.reduce((a, b) => a + (b - mean) ** 2, 0) / BB_N);
+      return { time: c.time, upper: mean + BB_K * std, mid: mean, lower: mean - BB_K * std };
+    }).filter(Boolean);
+    _bbUpper.setData(bbData.map(d => ({ time: d.time, value: d.upper })));
+    _bbMid  .setData(bbData.map(d => ({ time: d.time, value: d.mid   })));
+    _bbLower.setData(bbData.map(d => ({ time: d.time, value: d.lower })));
     const last = candles[candles.length - 1];
     const prev = candles[candles.length - 2];
     const chg  = (last.close - prev.close) / prev.close * 100;

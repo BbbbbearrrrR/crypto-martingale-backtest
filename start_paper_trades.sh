@@ -21,7 +21,13 @@ echo "calmar PID: $!"
 nohup "$PYTHON" -u paper/paper_trade_regime.py > logs/paper_regime.log 2>&1 &
 echo "regime PID: $!"
 
-echo "All three paper traders started. Check logs/ for output."
+nohup "$PYTHON" -u paper/paper_trade_martingale.py > logs/paper_martingale.log 2>&1 &
+echo "martingale PID: $!"
+
+nohup "$PYTHON" -u paper/paper_trade_boll_scalp.py > logs/paper_boll_scalp.log 2>&1 &
+echo "boll_scalp PID: $!"
+
+echo "All five paper traders started. Check logs/ for output."
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
 nohup "$PYTHON" dashboard/app.py > logs/dashboard.log 2>&1 &

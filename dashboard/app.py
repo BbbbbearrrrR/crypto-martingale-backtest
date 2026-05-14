@@ -21,14 +21,18 @@ _ROOT = Path(__file__).resolve().parent.parent
 _PAPER = _ROOT / "paper"
 _LOGS  = _ROOT / "logs"
 
-STRATEGIES = ["breakout", "calmar", "regime", "martingale"]
+STRATEGIES = ["breakout", "calmar", "regime", "martingale", "boll_scalp"]
 COINS      = ["btc", "eth", "sol", "hype", "sui"]
+# coins per strategy (boll_scalp skips BTC)
+STRATEGY_COINS = {s: COINS for s in STRATEGIES}
+STRATEGY_COINS["boll_scalp"] = ["eth", "sol", "hype", "sui"]
 
 COIN_SYMBOLS = {
     "btc":  "BTC/USDT:USDT",
     "eth":  "ETH/USDT:USDT",
     "sol":  "SOL/USDT:USDT",
     "hype": "HYPE/USDT:USDT",
+    "sui":  "SUI/USDT:USDT",
 }
 
 _exchange = ccxt.binance({"options": {"defaultType": "future"}})
@@ -152,7 +156,8 @@ def api_summary():
         total_initial = 0.0
         open_positions = 0
 
-        for coin in COINS:
+        strat_coins = STRATEGY_COINS.get(strat, COINS)
+        for coin in strat_coins:
             cs = state.get(coin, {})
             cap = cs.get("capital", 10000.0)
             peak = cs.get("peak_cap", 10000.0)
@@ -186,7 +191,7 @@ def api_summary():
             if in_trade:
                 open_positions += 1
 
-            wins = sum(1 for t in trades_list if t.get("pnl", 0) > 0)
+            wins = sum(1 for t in trades_list if float(t.get("pnl_usdt", t.get("pnl", 0))) > 0)
             total_trades = len(trades_list)
             wr = (wins / total_trades * 100) if total_trades > 0 else None
 
@@ -206,6 +211,10 @@ def api_summary():
 
         log_info = _parse_log_tail(strat)
 
+        # state file mtime — changes whenever a trade/SL/TP is recorded
+        state_path = _PAPER / f"paper_state_{strat}.json"
+        state_mtime = round(state_path.stat().st_mtime, 3) if state_path.exists() else 0
+
         result[strat] = {
             "total_capital": round(total_capital, 2),
             "total_return_pct": round((total_capital - total_initial) / total_initial * 100, 2),
@@ -214,6 +223,7 @@ def api_summary():
             "last_cycle": log_info["last_cycle"],
             "next_cycle_in": log_info["next_cycle_in"],
             "signals": log_info["signals"],
+            "state_mtime": state_mtime,
         }
 
     result["_server_now"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -281,7 +291,7 @@ def api_positions(strategy: str):
         return jsonify({"error": "unknown strategy"}), 404
     state = _load_state(strategy)
     positions = []
-    for coin in COINS:
+    for coin in STRATEGY_COINS.get(strategy, COINS):
         cs = state.get(coin, {})
         martin_obj = cs.get("martin")
         if martin_obj is not None:
@@ -300,13 +310,17 @@ def api_positions(strategy: str):
                 "sl_price": sl,
             })
         elif "martin" not in cs and cs.get("in_trade"):
+            # boll_scalp uses tp1/tp2; others use tp_price
+            tp_price = cs.get("tp_price") or cs.get("tp2_price")
             positions.append({
                 "coin": coin,
                 "direction": cs.get("direction"),
                 "entry_price": cs.get("entry_price"),
                 "sl_price": cs.get("sl_price"),
-                "tp_price": cs.get("tp_price"),
-                "notional": cs.get("notional"),
+                "tp_price": tp_price,
+                "tp1_price": cs.get("tp1_price"),
+                "notional": cs.get("notional_rem") or cs.get("notional"),
+                "partial_done": cs.get("partial_done", False),
                 "open_time": cs.get("open_time"),
             })
     return jsonify(positions)

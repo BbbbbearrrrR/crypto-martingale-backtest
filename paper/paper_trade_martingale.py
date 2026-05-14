@@ -112,10 +112,11 @@ def _dict_to_martin(d: dict) -> bm.Martin:
 
 def _default_state() -> dict:
     return {
-        "capital":   INITIAL_CAPITAL,
-        "peak_cap":  INITIAL_CAPITAL,
-        "martin":    None,          # serialized Martin dict or None
-        "trades":    [],
+        "capital":            INITIAL_CAPITAL,
+        "peak_cap":           INITIAL_CAPITAL,
+        "martin":             None,
+        "last_processed_ts":  None,
+        "trades":             [],
     }
 
 
@@ -308,23 +309,34 @@ def run_cycle(ex, state: dict, best: dict):
             df_1d = fetch_ohlcv(ex, symbol, "1d", WARMUP_1D)
 
             df  = bm.prepare(df_1h, df_1d)
-            row = df.iloc[-1]
-            ts  = df.index[-1]
+            cs  = state[coin]
 
-            trend  = "↑" if bool(row.get("trend_up", False)) else "↓"
-            el = "L✓" if bool(row.get("entry_long", False))  else "  "
-            es = "S✓" if bool(row.get("entry_short", False)) else "  "
-            mu = "↑" if bool(row.get("mid_cross_up", False))   else "  "
-            md = "↓" if bool(row.get("mid_cross_down", False)) else "  "
+            # Replay all candles missed while process was down
+            last_ts = cs.get("last_processed_ts")
+            if last_ts:
+                missed = df[df.index > pd.Timestamp(last_ts, tz="UTC")]
+                if len(missed) == 0:
+                    missed = df.iloc[-1:]
+            else:
+                missed = df.iloc[-1:]
 
-            lvl_str = ""
-            if state[coin]["martin"]:
-                lvl_str = f"  lvl={state[coin]['martin']['level']}"
+            if len(missed) > 1:
+                print(f"  [{coin.upper()}] ⚠ replaying {len(missed)} missed candles "
+                      f"from {str(missed.index[0])[:16]}")
 
-            print(f"  [{coin.upper()}]  close={row['close']:.4f}"
-                  f"  trend={trend}  {el} {es}  mid{mu}{md}{lvl_str}")
-
-            process_bar(state[coin], row, params, coin, ts)
+            for ts, row in missed.iterrows():
+                trend  = "↑" if bool(row.get("trend_up", False)) else "↓"
+                el = "L✓" if bool(row.get("entry_long", False))  else "  "
+                es = "S✓" if bool(row.get("entry_short", False)) else "  "
+                mu = "↑" if bool(row.get("mid_cross_up", False))   else "  "
+                md = "↓" if bool(row.get("mid_cross_down", False)) else "  "
+                lvl_str = ""
+                if cs["martin"]:
+                    lvl_str = f"  lvl={cs['martin']['level']}"
+                print(f"  [{coin.upper()}]  close={row['close']:.4f}"
+                      f"  trend={trend}  {el} {es}  mid{mu}{md}{lvl_str}")
+                process_bar(cs, row, params, coin, ts)
+                cs["last_processed_ts"] = str(ts)
 
         except ccxt.NetworkError as e:
             print(f"  [{coin.upper()}] network error: {e}  — will retry next cycle")
@@ -334,6 +346,53 @@ def run_cycle(ex, state: dict, best: dict):
 
     save_state(state)
     print_report(state)
+
+
+# ── Intrabar SL monitor ─────────────────────────────────────────────────────
+INTRABAR_CHECK_INTERVAL = 60  # seconds between live SL checks
+
+def check_intrabar_sl(ex, state: dict, best: dict):
+    """Check live price vs hard SL for all open martingale positions between candles."""
+    changed = False
+    for symbol, coin in COINS:
+        cs = state[coin]
+        martin_d = cs.get("martin")
+        if not martin_d:
+            continue
+        try:
+            raw     = ex.fetch_ohlcv(symbol, "1h", limit=1)
+            f_high  = float(raw[-1][2])
+            f_low   = float(raw[-1][3])
+            martin  = _dict_to_martin(martin_d)
+            hard_sl = martin.hard_sl()
+            cap     = cs["capital"]
+
+            hit_sl = (f_low <= hard_sl if martin.direction == "long" else f_high >= hard_sl)
+            if not hit_sl:
+                continue
+
+            pnl      = martin.pnl(hard_sl)
+            pnl      = max(pnl, -cap)
+            cap     += pnl
+            ts_now   = datetime.now(timezone.utc)
+
+            rec = dict(timestamp=str(ts_now), coin=coin, direction=martin.direction,
+                       level=martin.level, profit_level=martin.profit_level,
+                       exit_reason="MAX_SL", notional=round(martin.notional, 4),
+                       pnl_usdt=round(pnl, 4), capital=round(cap, 4))
+            cs["trades"].append(rec)
+            _log_trade(rec)
+            print(f"  \u26a1 INTRABAR MAX_SL  {coin.upper():5s}  {martin.direction.upper()}"
+                  f"  high={f_high:.4f}  low={f_low:.4f}  sl={hard_sl:.4f}  pnl=${pnl:+.2f}  cap=${cap:.0f}")
+
+            cs["capital"]  = cap
+            cs["peak_cap"] = max(cs["peak_cap"], cap)
+            cs["martin"]   = None
+            changed = True
+        except Exception as e:
+            print(f"  [{coin.upper()}] intrabar check error: {e}")
+    if changed:
+        save_state(state)
 
 
 # ── Scheduling ────────────────────────────────────────────────────────────────
@@ -372,8 +431,14 @@ def main():
     while True:
         wait = seconds_to_next_candle()
         nxt  = (datetime.now(timezone.utc) + timedelta(seconds=wait)).strftime("%H:%M:%S UTC")
-        print(f"  ⏱  Next cycle in {wait/60:.1f} min  ({nxt})")
-        time.sleep(wait)
+        print(f"  \u23f1  Next cycle in {wait/60:.1f} min  ({nxt})")
+        slept = 0
+        while slept < wait - 1:
+            chunk  = min(INTRABAR_CHECK_INTERVAL, wait - slept)
+            time.sleep(chunk)
+            slept += chunk
+            if slept < wait - 1:
+                check_intrabar_sl(ex, state, best)
         best = json.loads(BEST_PARAMS_FILE.read_text())
         run_cycle(ex, state, best)
 

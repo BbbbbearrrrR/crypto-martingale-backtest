@@ -1,0 +1,77 @@
+{
+  "btc": {
+    "best_score": 3.409,
+    "params": {
+      "LEVERAGE": 5,
+      "BASE_RISK": 0.01,
+      "BB_PERIOD": 40,
+      "BB_STD": 2.0,
+      "ATR_PERIOD": 14,
+      "SWING_PERIOD": 72,
+      "SL_BUFFER_ATR": 0.0,
+      "TREND_EMA_PERIOD": 100,
+      "USE_PARTIAL_TP": false,
+      "MAX_HOLD_BARS": 24
+    }
+  },
+  "eth": {
+    "best_score": 29.6566,
+    "params": {
+      "LEVERAGE": 5,
+      "BASE_RISK": 0.02,
+      "BB_PERIOD": 10,
+      "BB_STD": 2.5,
+      "ATR_PERIOD": 14,
+      "SWING_PERIOD": 30,
+      "SL_BUFFER_ATR": 0.0,
+      "TREND_EMA_PERIOD": 200,
+      "USE_PARTIAL_TP": false,
+      "MAX_HOLD_BARS": 24
+    }
+  },
+  "sol": {
+    "best_score": 25.1582,
+    "params": {
+      "LEVERAGE": 5,
+      "BASE_RISK": 0.02,
+      "BB_PERIOD": 10,
+      "BB_STD": 2.5,
+      "ATR_PERIOD": 14,
+      "SWING_PERIOD": 30,
+      "SL_BUFFER_ATR": 0.0,
+      "TREND_EMA_PERIOD": 200,
+      "USE_PARTIAL_TP": true,
+      "MAX_HOLD_BARS": 24
+    }
+  },
+  "hype": {
+    "best_score": 306.4648,
+    "params": {
+      "LEVERAGE": 5,
+      "BASE_RISK": 0.02,
+      "BB_PERIOD": 10,
+      "BB_STD": 2.5,
+      "ATR_PERIOD": 14,
+      "SWING_PERIOD": 30,
+      "SL_BUFFER_ATR": 0.0,
+      "TREND_EMA_PERIOD": 200,
+      "USE_PARTIAL_TP": true,
+      "MAX_HOLD_BARS": 24
+    }
+  },
+  "sui": {
+    "best_score": 107.7322,
+    "params": {
+      "LEVERAGE": 5,
+      "BASE_RISK": 0.02,
+      "BB_PERIOD": 10,
+      "BB_STD": 2.5,
+      "ATR_PERIOD": 14,
+      "SWING_PERIOD": 30,
+      "SL_BUFFER_ATR": 0.0,
+      "TREND_EMA_PERIOD": 200,
+      "USE_PARTIAL_TP": true,
+      "MAX_HOLD_BARS": 24
+    }
+  }
+}
