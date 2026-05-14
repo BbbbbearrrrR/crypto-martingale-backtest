@@ -100,7 +100,28 @@ def _parse_log_tail(strategy: str, n_lines: int = 300) -> dict:
 
         m = re.search(r"Next cycle in ([\d.]+) min\s+\((.+?)\)", line)
         if m:
-            next_cycle_in = {"minutes": float(m.group(1)), "at": m.group(2)}
+            at_str = m.group(2).strip()  # e.g. "04:00:15 UTC"
+            try:
+                # Build a full UTC datetime for today using the time from log
+                t = datetime.strptime(at_str, "%H:%M:%S UTC").replace(
+                    tzinfo=timezone.utc
+                )
+                now_utc = datetime.now(timezone.utc)
+                next_dt = now_utc.replace(
+                    hour=t.hour, minute=t.minute, second=t.second, microsecond=0
+                )
+                # If the time has already passed today, advance by 1h until in future
+                if next_dt <= now_utc:
+                    from datetime import timedelta
+                    while next_dt <= now_utc:
+                        next_dt += timedelta(hours=1)
+                remaining_s = round((next_dt - now_utc).total_seconds())
+                next_cycle_in = {
+                    "at": next_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "remaining_seconds": remaining_s,
+                }
+            except Exception:
+                next_cycle_in = {"at": None}
 
     return {
         "last_cycle": last_cycle,
@@ -195,6 +216,7 @@ def api_summary():
             "signals": log_info["signals"],
         }
 
+    result["_server_now"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return jsonify(result)
 
 
@@ -204,6 +226,90 @@ def api_trades(strategy: str):
         return jsonify({"error": "unknown strategy"}), 404
     trades = _load_trades(strategy)
     return jsonify(trades)
+
+
+def _martin_tp_sl(martin_obj: dict, coin: str) -> tuple:
+    """Compute current TP and SL prices for an open martingale position."""
+    try:
+        params_path = _ROOT / "results" / "martingale" / "best_params.json"
+        all_params = json.loads(params_path.read_text())
+        p = all_params.get(coin, {}).get("params", {})
+        leverage        = p.get("LEVERAGE", 20)
+        tp_margin_rate  = p.get("TP_MARGIN_RATE", 1.0)
+        tp_scale_levels = p.get("TP_SCALE_LEVELS", 1)
+        tp_scale_mult   = p.get("TP_SCALE_MULT", 2.0)
+        sl_capital_rate = p.get("SL_CAPITAL_RATE", 0.5)
+
+        entries  = martin_obj.get("entries", [])
+        tp_tier  = martin_obj.get("tp_tier", 0)
+        capital  = martin_obj.get("capital", 0)
+        direction = martin_obj.get("direction", "long")
+
+        if not entries:
+            return 0.0, 0.0
+
+        sum_n        = sum(n for _, n in entries)
+        sum_pn       = sum(p_ * n for p_, n in entries)
+        avg          = sum_pn / sum_n
+
+        mult = (tp_scale_mult ** tp_tier) if tp_scale_levels > 1 else 1.0
+        move = tp_margin_rate * mult / leverage
+        tp   = avg * (1 + move) if direction == "long" else avg * (1 - move)
+
+        target_loss  = sl_capital_rate * capital
+        sum_n_over_p = sum(n / p_ for p_, n in entries)
+        if direction == "long":
+            sl = (sum_n - target_loss) / sum_n_over_p
+        else:
+            sl = (sum_n + target_loss) / sum_n_over_p
+
+        # SL is impossible to hit if price goes negative (long) or absurdly high (short)
+        if direction == "long" and sl <= 0:
+            sl = None
+        elif direction == "short" and sl > avg * 5:
+            sl = None
+
+        return tp, sl
+    except Exception:
+        return 0.0, 0.0
+
+
+@app.route("/api/positions/<strategy>")
+def api_positions(strategy: str):
+    """Return current open positions for a strategy."""
+    if strategy not in STRATEGIES:
+        return jsonify({"error": "unknown strategy"}), 404
+    state = _load_state(strategy)
+    positions = []
+    for coin in COINS:
+        cs = state.get(coin, {})
+        martin_obj = cs.get("martin")
+        if martin_obj is not None:
+            entries = martin_obj.get("entries", [])
+            avg_entry = (sum(p * n for p, n in entries) / sum(n for _, n in entries)) if entries else 0
+            tp, sl = _martin_tp_sl(martin_obj, coin)
+            positions.append({
+                "coin": coin,
+                "direction": martin_obj.get("direction"),
+                "level": martin_obj.get("level", 0),
+                "profit_level": martin_obj.get("profit_level", 0),
+                "entries": [{"price": e[0], "notional": e[1]} for e in entries],
+                "avg_entry": avg_entry,
+                "total_notional": sum(n for _, n in entries),
+                "tp_price": tp,
+                "sl_price": sl,
+            })
+        elif "martin" not in cs and cs.get("in_trade"):
+            positions.append({
+                "coin": coin,
+                "direction": cs.get("direction"),
+                "entry_price": cs.get("entry_price"),
+                "sl_price": cs.get("sl_price"),
+                "tp_price": cs.get("tp_price"),
+                "notional": cs.get("notional"),
+                "open_time": cs.get("open_time"),
+            })
+    return jsonify(positions)
 
 
 _COIN_SYMBOLS = {

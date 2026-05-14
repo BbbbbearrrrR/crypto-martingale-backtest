@@ -105,19 +105,22 @@
     display: grid;
     grid-template-columns: 1fr 640px;
     gap: 12px;
-    align-items: start;
+    align-items: stretch;
   }
+  .chart-section {
+    display: flex;
+    flex-direction: column;
+  }
+  #btc-chart-container { flex: 1; min-height: 0; }
   @media (max-width: 1100px) {
     .main-col { grid-template-columns: 1fr; }
   }
 
   /* ── Drawer toggle button ── */
   .drawer-btn {
-    position: fixed; right: 0; top: 50%;
-    transform: translateY(-50%);
+    position: fixed; right: 0; bottom: 24px;
     z-index: 200;
-    writing-mode: vertical-rl; text-orientation: mixed;
-    padding: 14px 8px;
+    padding: 6px 14px;
     background: var(--blue); color: #fff;
     border: none; border-radius: 8px 0 0 8px;
     font-size: 12px; font-weight: 700; letter-spacing: 1px;
@@ -157,7 +160,13 @@
   .sidebar-close:hover { background: rgba(255,255,255,.07); color: var(--text); }
   .sidebar-tabs { padding: 8px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .sidebar .strategy-tabs { margin-bottom: 0; }
-  .sidebar-body { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  .sidebar-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 12px 12px; }
+  .sidebar-section-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--muted);
+    padding: 10px 0 6px; border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+  }
   .sidebar .trades-table-wrap { overflow-x: auto; }
   .sidebar table.trades { font-size: 11px; }
   .sidebar table.trades th, .sidebar table.trades td { padding: 4px 7px; }
@@ -196,8 +205,9 @@
 
   /* ── BTC 1H Chart ── */
   .chart-section {
-    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    border: 1px solid var(--border); border-radius: 10px;
     overflow: hidden;
+    background: var(--card);
   }
   .chart-header {
     display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
@@ -306,13 +316,16 @@
 <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
 <aside class="sidebar" id="trades-drawer">
   <div class="sidebar-header">
-    <h2>Trade History</h2>
+    <h2>Positions &amp; History</h2>
     <button class="sidebar-close" onclick="closeDrawer()">✕</button>
   </div>
   <div class="sidebar-tabs">
     <div class="strategy-tabs" id="trade-tabs"></div>
   </div>
   <div class="sidebar-body">
+    <div class="sidebar-section-title">📂 Open Positions</div>
+    <div id="positions-body"><p class="empty-msg">No open positions</p></div>
+    <div class="sidebar-section-title" style="margin-top:14px">✅ Closed Trades</div>
     <div class="trades-table-wrap" id="trades-body">
       <p class="empty-msg">Loading…</p>
     </div>
@@ -454,7 +467,7 @@ function renderSummary(data) {
             data-notional="${c.notional || 0}"
             data-direction="${c.direction || ''}"
             data-capital="${c.capital || 10000}">${upnlHtml}</td>
-        <td style="color:var(--muted);font-size:12px">${c.entry_price ? c.entry_price.toLocaleString() : "—"}</td>
+        <td style="color:var(--muted);font-size:12px">${c.entry_price ? c.entry_price.toLocaleString('en-US', {maximumFractionDigits:4}) : "—"}</td>
         <td data-curprice="${strat}-${coin}" style="font-size:12px">—</td>
       </tr>`;
     }).join("");
@@ -465,8 +478,13 @@ function renderSummary(data) {
         ).join("")}</div>`
       : "";
 
-    const nextMin = s.next_cycle_in?.minutes;
-    const nextAt  = s.next_cycle_in?.at;
+    const nci = s.next_cycle_in;
+    if (nci?.at && nci?.remaining_seconds != null) {
+      // target = server_now + remaining, expressed as client-corrected ms
+      // = server target time in absolute ms (server clock)
+      const serverNowMs = summaryCache._server_now ? new Date(summaryCache._server_now).getTime() : (Date.now() + _clockSkewMs);
+      _nextCycleTargetMs[strat] = serverNowMs + nci.remaining_seconds * 1000;
+    }
 
     const card = document.createElement("div");
     card.className = "strategy-card" + (hasPos ? " has-position" : "");
@@ -487,7 +505,7 @@ function renderSummary(data) {
         </table>
         <div class="cycle-info">
           <span>Last cycle <b>${s.last_cycle ?? "—"}</b></span>
-          ${nextMin != null ? `<span>Next in <b>${nextMin.toFixed(1)} min</b> (${nextAt})</span>` : ""}
+          ${nci?.at ? `<span>Next in <b id="countdown-${strat}">…</b></span>` : ""}
           <span>Positions <b>${s.open_positions}</b></span>
         </div>
         ${signalHtml}
@@ -499,7 +517,66 @@ function renderSummary(data) {
 
 /* ── Trades render ── */
 async function loadTrades(strategy) {
-  const body = document.getElementById("trades-body");
+  // Load open positions
+  const posBody = document.getElementById('positions-body');
+  posBody.innerHTML = `<p class="empty-msg">Loading…</p>`;
+  try {
+    const posRes = await fetch(`/api/positions/${strategy}`);
+    const positions = await posRes.json();
+    if (!positions.length) {
+      posBody.innerHTML = `<p class="empty-msg">No open positions</p>`;
+    } else {
+      posBody.innerHTML = positions.map(p => {
+        const coin = (p.coin ?? '').toUpperCase();
+        const dot  = `<span style="color:${COIN_COLORS[p.coin]||'var(--text)'};font-size:11px">●</span>`;
+        const dir  = p.direction ?? '';
+        const dirCls = dir === 'long' ? 'badge-long' : dir === 'short' ? 'badge-short' : 'badge-flat';
+        // Martingale: show each entry level
+        if (p.entries) {
+          const entryRows = p.entries.map((e, i) =>
+            `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:1px 0">
+              <span>Lvl ${i}</span>
+              <span>@ ${e.price.toLocaleString('en-US',{maximumFractionDigits:4})}</span>
+            </div>`
+          ).join('');
+          const avg  = (p.avg_entry||0).toLocaleString('en-US',{maximumFractionDigits:4});
+          const tp   = (p.tp_price||0).toLocaleString('en-US',{maximumFractionDigits:4});
+          const sl   = p.sl_price != null ? p.sl_price.toLocaleString('en-US',{maximumFractionDigits:4}) : '—';
+          return `<div class="trade-card">
+            <div class="trade-card-top">
+              <span class="trade-card-coin">${dot}${coin} <span class="badge ${dirCls}">${dir}</span></span>
+              <span style="font-size:12px;font-weight:700;color:var(--blue)">$${(p.total_notional||0).toFixed(1)}</span>
+            </div>
+            <div style="margin-top:4px">${entryRows}</div>
+            <div class="trade-card-meta" style="margin-top:4px">
+              <span><b>Entry</b> ${avg}</span>
+            </div>
+            <div class="trade-card-meta">
+              <span><b>TP</b> ${tp}</span>
+              <span><b>SL</b> ${sl}</span>
+            </div>
+          </div>`;
+        }
+        // Other strategies: single entry
+        const size = (p.notional||0).toLocaleString('en-US',{maximumFractionDigits:2});
+        return `<div class="trade-card">
+          <div class="trade-card-top">
+            <span class="trade-card-coin">${dot}${coin} <span class="badge ${dirCls}">${dir}</span></span>
+            <span style="font-size:12px;font-weight:700;color:var(--blue)">$${size}</span>
+          </div>
+          <div class="trade-card-meta">
+            <span><b>Entry</b> ${(p.entry_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>
+            <span><b>SL</b> ${(p.sl_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>
+            <span><b>TP</b> ${(p.tp_price||0).toLocaleString('en-US',{maximumFractionDigits:4})}</span>
+          </div>
+          <div class="trade-card-time">${p.open_time ?? ''}</div>
+        </div>`;
+      }).join('');
+    }
+  } catch(e) { posBody.innerHTML = `<p class="empty-msg">Error loading positions</p>`; }
+
+  // Load closed trades
+  const body = document.getElementById('trades-body');
   body.innerHTML = `<p class="empty-msg">Loading…</p>`;
   const res = await fetch(`/api/trades/${strategy}`);
   const rows = await res.json();
@@ -508,29 +585,38 @@ async function loadTrades(strategy) {
     return;
   }
   const cards = rows.map(r => {
-    const pnl = parseFloat(r.pnl_usdt ?? r.pnl ?? 0);
+    const pnl    = parseFloat(r.pnl_usdt ?? r.pnl ?? 0);
     const pnlCls = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
-    const pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+    const pnlStr = (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2);
     const coin   = (r.coin ?? r.symbol ?? '').toUpperCase();
     const dir    = r.direction ?? r.side ?? '';
     const dirCls = dir === 'long' ? 'badge-long' : dir === 'short' ? 'badge-short' : 'badge-flat';
-    const entry  = parseFloat(r.entry_price ?? 0).toLocaleString('en', {maximumFractionDigits: 2});
-    const exit_p = parseFloat(r.exit_price ?? 0).toLocaleString('en', {maximumFractionDigits: 2});
-    const size   = parseFloat(r.notional ?? 0).toFixed(2);
-    const ts     = r.timestamp ?? r.time ?? '';
+    const entry  = parseFloat(r.entry_price ?? 0).toLocaleString('en-US', {maximumFractionDigits: 4});
+    const exit_p = parseFloat(r.exit_price  ?? 0).toLocaleString('en-US', {maximumFractionDigits: 4});
+    const size   = parseFloat(r.notional ?? 0).toLocaleString('en-US', {maximumFractionDigits: 2});
+    const cap    = parseFloat(r.capital  ?? 0).toLocaleString('en-US', {maximumFractionDigits: 2});
+    const reason = r.exit_reason ?? '';
+    const reasonColor = reason === 'TP' || reason.startsWith('TP') ? 'var(--green)'
+                      : reason === 'SL' || reason === 'MAX_SL'     ? 'var(--red)'
+                      : 'var(--muted)';
+    const ts     = (r.timestamp ?? r.exit_time ?? r.time ?? '').slice(0, 16);
     return `
     <div class="trade-card">
       <div class="trade-card-top">
         <span class="trade-card-coin">
           ${coin ? `<span style="color:${COIN_COLORS[coin.toLowerCase()]||'var(--text)'};font-size:11px">●</span>${coin}` : '—'}
           <span class="badge ${dirCls}">${dir || 'flat'}</span>
+          ${reason ? `<span style="font-size:10px;font-weight:700;color:${reasonColor};margin-left:4px">${reason}</span>` : ''}
         </span>
         <span class="trade-card-pnl ${pnlCls}">${pnlStr}</span>
       </div>
       <div class="trade-card-meta">
         <span><b>Entry</b> ${entry}</span>
         <span><b>Exit</b> ${exit_p}</span>
-        <span><b>Size</b> $${size}</span>
+      </div>
+      <div class="trade-card-meta">
+        <span><b>Size</b> <span style="color:var(--blue);font-weight:700">$${size}</span></span>
+        <span><b>Cap</b> $${cap}</span>
       </div>
       <div class="trade-card-time">${ts}</div>
     </div>`;
@@ -553,10 +639,37 @@ function renderTabs() {
 }
 
 /* ── Main loop ── */
+// strat -> target time in ms (server-corrected)
+const _nextCycleTargetMs = {};
+let _clockSkewMs = 0;  // server_now - client_now, corrects clock drift
+
+function _tickCountdowns() {
+  const nowCorrected = Date.now() + _clockSkewMs;  // server-aligned time
+  for (const [strat, targetMs] of Object.entries(_nextCycleTargetMs)) {
+    const el = document.getElementById(`countdown-${strat}`);
+    if (!el || !targetMs) continue;
+    const remaining = (targetMs - nowCorrected) / 1000;
+    if (remaining <= 0) {
+      el.textContent = "soon";
+    } else {
+      const m = Math.floor(remaining / 60);
+      const s = Math.floor(remaining % 60);
+      el.textContent = `${m}m ${s.toString().padStart(2,'0')}s`;
+    }
+  }
+}
+
 async function refresh() {
   try {
+    const fetchTime = Date.now();
     const res = await fetch("/api/summary");
     summaryCache = await res.json();
+    // Compute clock skew once per fetch
+    if (summaryCache._server_now) {
+      const serverMs = new Date(summaryCache._server_now).getTime();
+      const clientMs = fetchTime + (Date.now() - fetchTime) / 2;
+      _clockSkewMs = Math.round(serverMs - clientMs);
+    }
     renderSummary(summaryCache);
     document.getElementById("last-updated").textContent =
       new Date().toLocaleTimeString("en");
@@ -708,9 +821,9 @@ function updateChartPositions() {
     const add = (price, color, title) => price && _priceLines.push(
       _candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title })
     );
-    add(c.entry_price, '#58a6ff', strat + ' entry');
-    add(c.sl_price,    '#f85149', strat + ' SL');
-    add(c.tp_price,    '#3fb950', strat + ' TP');
+    add(c.entry_price, '#58a6ff', strat[0].toUpperCase() + ' in');
+    add(c.sl_price,    '#f85149', strat[0].toUpperCase() + ' SL');
+    add(c.tp_price,    '#3fb950', strat[0].toUpperCase() + ' TP');
   });
 }
 
@@ -734,13 +847,14 @@ initChart();
 loadCandles('btc');
 setInterval(() => loadCandles(_activeChartCoin), 60000);
 
-// UTC clock
+// UTC clock + countdowns — one shared interval so they're always in sync
 function tickClock() {
-  const now = new Date();
+  const now = new Date(Date.now() + _clockSkewMs);  // corrected UTC
   const pad = n => String(n).padStart(2, '0');
   document.getElementById('utc-clock').textContent =
     `UTC ${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} ` +
     `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}`;
+  _tickCountdowns();
 }
 tickClock();
 setInterval(tickClock, 1000);
