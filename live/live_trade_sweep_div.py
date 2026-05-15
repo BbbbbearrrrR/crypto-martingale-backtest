@@ -487,11 +487,24 @@ def main():
         print("State reset.\n")
 
     best  = json.loads(BEST_PARAMS_FILE.read_text())
-    state = load_state()
     ex    = make_exchange()
 
     if not DRY_RUN:
         ex.load_markets()
+        # On fresh start: auto-detect account balance so INITIAL_CAPITAL
+        # doesn't need to be set manually in the source file.
+        if not STATE_FILE.exists():
+            global INITIAL_CAPITAL
+            try:
+                bal = ex.fetch_balance()["USDT"]["free"]
+                if bal > 0:
+                    INITIAL_CAPITAL = bal
+                    print(f"  Auto-detected balance: ${bal:.2f}  "
+                          f"→ per-coin capital: ${bal/len(COINS):.2f}")
+            except Exception as e:
+                print(f"  [WARN] could not fetch balance, using INITIAL_CAPITAL={INITIAL_CAPITAL}: {e}")
+
+    state = load_state()
 
     while True:
         wait = seconds_to_next_candle()
