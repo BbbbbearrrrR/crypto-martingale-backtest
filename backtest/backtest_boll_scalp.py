@@ -57,7 +57,7 @@ AUTO_TUNE = True
 
 TUNE_SPACE = {
     # ── Signal quality (most impactful) ──────────────────────────────────
-    "BB_PERIOD":        [15, 20, 30, 40],
+    "BB_PERIOD":        [20, 30, 40],     # drop 15 (too noisy for mean-reversion)
     "BB_STD":           [1.5, 2.0, 2.5],
     "TREND_EMA_PERIOD": [50, 100, 200],
     # ── Risk:reward ──────────────────────────────────────────────────────
@@ -65,12 +65,12 @@ TUNE_SPACE = {
     # ── Exit switches ────────────────────────────────────────────────────
     "USE_PARTIAL_TP":   [True, False],
     "MAX_HOLD_BARS":    [12, 24, 48],     # 1h / 2h / 4h
-    "VOL_DIV_PERIOD":   [0, 3, 5],
+    "VOL_DIV_PERIOD":   [0, 5],           # off vs 5 (drop 3, midpoint)
     # ── Position sizing ──────────────────────────────────────────────────────
     "LEVERAGE":         [5, 10, 20],
-    # ── Fixed: BASE_RISK=0.01 (not in tune space)
+    "BASE_RISK":        [0.01, 0.02, 0.05],
 }
-# Total: 4×3×3×3×2×3×3×3 = 5,832 combos
+# Total: 3×3×3×3×2×3×2×3×3 = 8,748 combos
 
 COINS = [
     ("BTC/USDT:USDT", "btc"),
@@ -418,10 +418,10 @@ def auto_tune(coins=None):
             for coin, sc in coin_scores.items():
                 if sc == float("-inf"):
                     continue
-                prev_sc = best.get(coin, {}).get("best_score", float("-inf"))
+                prev_sc = best.get(coin, {}).get("best_calmar", float("-inf"))
                 if sc > prev_sc:
                     best[coin] = {
-                        "best_score": round(sc, 6),
+                        "best_calmar": round(sc, 6),
                         "params":     snapped_params,
                     }
                     updated.append(f"{coin.upper()} calmar={sc:.3f}")

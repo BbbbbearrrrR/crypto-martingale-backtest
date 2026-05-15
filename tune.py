@@ -36,17 +36,15 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent
 
-STRATEGIES = ["breakout", "calmar", "regime", "martingale", "boll_scalp", "boll_scalp_1h"]
+STRATEGIES = ["breakout", "boll_scalp", "boll_scalp_1h", "sweep_div"]
 
 ALL_COINS = ["btc", "eth", "sol", "hype", "sui"]
 
 RESULTS_DIRS = {
     "breakout":      _ROOT / "results/breakout",
-    "calmar":        _ROOT / "results/calmar",
-    "regime":        _ROOT / "results/regime",
-    "martingale":    _ROOT / "results/martingale",
     "boll_scalp":    _ROOT / "results/boll_scalp",
     "boll_scalp_1h": _ROOT / "results/boll_scalp_1h",
+    "sweep_div":     _ROOT / "results/sweep_div",
 }
 
 
@@ -81,7 +79,7 @@ def print_summary():
             else:
                 score_lbl = f"{entry.get('best_return', 0)*100:.1f}%"
                 score_key = "return"
-            hold = entry.get("max_hold_ratio", 0) * 100
+            hold = entry.get("max_dd_frac", entry.get("max_hold_ratio", 0)) * 100
             lev  = p.get("LEVERAGE", "?")
             don  = p.get("DONCHIAN_PERIOD", "?")
             rr   = p.get("TP_RR", "?")
@@ -98,11 +96,9 @@ def run_tune(strategies: list, coin_filter: list | None, n_trials: int = 1000):
     import importlib
     modules = {
         "breakout":      "backtest.backtest_breakout",
-        "calmar":        "backtest.backtest_calmar",
-        "regime":        "backtest.backtest_regime",
-        "martingale":    "backtest.backtest_martingale",
         "boll_scalp":    "backtest.backtest_boll_scalp",
         "boll_scalp_1h": "backtest.backtest_boll_scalp_1h",
+        "sweep_div":     "backtest.backtest_sweep_div",
     }
 
     total = len(strategies)

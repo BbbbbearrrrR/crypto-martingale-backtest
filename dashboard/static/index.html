@@ -340,7 +340,7 @@
 </aside>
 
 <script>
-const STRATEGIES = ["breakout", "boll_scalp", "boll_scalp_1h"];
+const STRATEGIES = ["breakout", "boll_scalp", "boll_scalp_1h", "sweep_div"];
 const COINS      = ["btc", "eth", "sol", "hype", "sui"];
 const COIN_COLORS = { btc: "#f7931a", eth: "#627eea", sol: "#9945ff", hype: "#00d4aa", sui: "#4da2ff" };
 // coins per strategy (boll_scalp 5m skips BTC; boll_scalp_1h includes all)
@@ -430,6 +430,7 @@ function stratLabel(s) {
     breakout:     "Breakout",
     boll_scalp:   "Boll Scalp 5m",
     boll_scalp_1h:"Boll Scalp 1h",
+    sweep_div:    "Sweep Div 1h",
   };
   return MAP[s] || s;
 }

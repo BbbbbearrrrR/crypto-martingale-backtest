@@ -21,7 +21,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 _PAPER = _ROOT / "paper"
 _LOGS  = _ROOT / "logs"
 
-STRATEGIES = ["breakout", "boll_scalp", "boll_scalp_1h"]
+STRATEGIES = ["breakout", "boll_scalp", "boll_scalp_1h", "sweep_div"]
 COINS      = ["btc", "eth", "sol", "hype", "sui"]
 # coins per strategy (boll_scalp 5m skips BTC; boll_scalp_1h includes all)
 STRATEGY_COINS = {s: COINS for s in STRATEGIES}

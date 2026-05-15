@@ -12,22 +12,19 @@ fi
 
 mkdir -p logs
 
-nohup "$PYTHON" -u paper/paper_trade_breakout.py > logs/paper_breakout.log 2>&1 &
-echo "breakout PID: $!"
+nohup "$PYTHON" -u paper/paper_trade_breakout.py      > logs/paper_breakout.log     2>&1 &
+echo "breakout      PID: $!"
 
-nohup "$PYTHON" -u paper/paper_trade_calmar.py > logs/paper_calmar.log 2>&1 &
-echo "calmar PID: $!"
+nohup "$PYTHON" -u paper/paper_trade_boll_scalp.py    > logs/paper_boll_scalp.log   2>&1 &
+echo "boll_scalp    PID: $!"
 
-nohup "$PYTHON" -u paper/paper_trade_regime.py > logs/paper_regime.log 2>&1 &
-echo "regime PID: $!"
+nohup "$PYTHON" -u paper/paper_trade_boll_scalp_1h.py > logs/paper_boll_scalp_1h.log 2>&1 &
+echo "boll_scalp_1h PID: $!"
 
-nohup "$PYTHON" -u paper/paper_trade_martingale.py > logs/paper_martingale.log 2>&1 &
-echo "martingale PID: $!"
+nohup "$PYTHON" -u paper/paper_trade_sweep_div.py     > logs/paper_sweep_div.log    2>&1 &
+echo "sweep_div     PID: $!"
 
-nohup "$PYTHON" -u paper/paper_trade_boll_scalp.py > logs/paper_boll_scalp.log 2>&1 &
-echo "boll_scalp PID: $!"
-
-echo "All five paper traders started. Check logs/ for output."
+echo "All four paper traders started. Check logs/ for output."
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
 nohup "$PYTHON" dashboard/app.py > logs/dashboard.log 2>&1 &

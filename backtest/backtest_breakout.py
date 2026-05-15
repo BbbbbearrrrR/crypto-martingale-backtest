@@ -90,23 +90,26 @@ TUNE_SPACE = {
     # ── Most impactful: signal quality ────────────────────────────────────────
     "DONCHIAN_PERIOD":   [10, 20, 40],    # breakout sensitivity
     "TREND_EMA_PERIOD":  [50, 100, 200],  # daily trend lag
-    "ADX_MIN":           [0.0, 20.0, 25.0],  # ranging-market filter
+    "ADX_MIN":           [0.0, 20.0],     # off vs filtered (25 ≈ 20, removed)
     # ── Most impactful: exit quality ──────────────────────────────────────────
     "TP_RR":             [2.0, 3.0, 5.0], # critical for ~25% win rate
     "MAX_HOLD_BARS":     [0, 48, 96],     # 0=off, 2d, 4d
     # ── SL placement ─────────────────────────────────────────────────────────
     "SL_MODE":           ["donchian", "atr"],
-    "SL_MULT":           [1.5, 2.5],      # only used when SL_MODE="atr"
+    "SL_MULT":           [2.0],           # only used when SL_MODE="atr"; fixed
     # ── Volume / OBV filters ─────────────────────────────────────────────────
-    "VOL_MULT":          [1.0, 1.5],
-    "USE_OBV_FILTER":    [True, False],
+    "VOL_MULT":          [1.0],           # fixed; 1.5 rarely selected in prior runs
+    "USE_OBV_FILTER":    [False],         # fixed; rarely selected
     # ── Exit switches ─────────────────────────────────────────────────────────
     "USE_PARTIAL_TP":    [True, False],
     "USE_TRAIL":         [True, False],
     "USE_TREND_EXIT":    [True, False],
-    # ── Fixed (not period-sensitive or no evidence of benefit) ───────────────
-    # LEVERAGE=10, BASE_RISK=0.01, ATR_PERIOD=14, COOLDOWN_BARS=0
-    # OBV_PERIOD=20, PARTIAL_R=1.0, TRAIL_TRIGGER_R=1.0, PARTIAL_FRAC=0.5
+    # ── Position sizing ───────────────────────────────────────────────────────
+    "LEVERAGE":          [5, 10],         # drop 3x (too conservative for futures)
+    "BASE_RISK":         [0.01, 0.02, 0.05],
+    # ── Fixed: ATR_PERIOD=14, COOLDOWN_BARS=0, OBV_PERIOD=20
+    # PARTIAL_R=1.0, TRAIL_TRIGGER_R=1.0, PARTIAL_FRAC=0.5
+    # Total: 3×3×2×3×3×2×1×1×1×2×2×2×2×3 = 15,552 combos
 }
 
 COINS = [
@@ -349,14 +352,14 @@ def run_backtest(symbol: str, coin: str):
 
     pf_s  = f"{m['pf']:.2f}"     if m["pf"]    < 999 else "inf"
     cal_s = f"{m['calmar']:.2f}" if m["calmar"] < 999 else "inf"
-    print(f"  Trades        : {m['n']}  ({m['wins']}W / {m['losses']}L,  {m['win_rate']:.1f}%)")
+    print(f"  Trades        : {m['n']}  ({m['wins']}W / {m['losses']}L,  {m['win_rate']*100:.1f}%)")
     print(f"  TP/SL/Trail   : {(t['exit_reason']=='TP').sum()} / {(t['exit_reason']=='SL').sum()} / {(t['exit_reason']=='TRAIL_SL').sum()}")
     print(f"  Avg win/loss  : ${m['avg_win']:.2f} / ${m['avg_loss']:.2f}")
     print(f"  Expectancy    : ${m['expectancy']:.2f} / trade")
     print(f"  Profit factor : {pf_s}")
     print(f"  Total PnL     : ${t['pnl_usdt'].sum():.2f}")
-    print(f"  Total return  : {m['total_ret']:.1f}%")
-    print(f"  Max drawdown  : {m['max_dd']:.1f}%")
+    print(f"  Total return  : {m['total_ret']*100:.1f}%")
+    print(f"  Max drawdown  : {m['max_dd']*100:.1f}%")
     print(f"  Sharpe (ann)  : {m['sharpe']:.2f}")
     print(f"  Calmar        : {cal_s}")
     print(f"  Final capital : ${m['final']:.2f}")
@@ -368,15 +371,15 @@ def compute_metrics(t: pd.DataFrame, initial_capital: float) -> dict:
     n        = len(t)
     wins     = int((t["pnl_usdt"] > 0).sum())
     losses   = n - wins
-    win_rate = wins / n * 100
+    win_rate = wins / n           # fraction 0-1
     avg_win  = float(t.loc[t["pnl_usdt"] > 0,  "pnl_usdt"].mean()) if wins   else 0.0
     avg_loss = float(t.loc[t["pnl_usdt"] <= 0, "pnl_usdt"].mean()) if losses else 0.0
     pf       = (wins * avg_win / (-losses * avg_loss)
                 if losses and avg_loss < 0 else float("inf"))
     expectancy = float(t["pnl_usdt"].mean())
     final      = float(t["capital"].iloc[-1])
-    total_ret  = (final - initial_capital) / initial_capital * 100
-    max_dd     = float(t["drawdown"].max()) * 100
+    total_ret  = (final - initial_capital) / initial_capital  # fraction 0-1
+    max_dd     = float(t["drawdown"].max())                   # fraction 0-1
 
     eq        = t.set_index("exit_time")["capital"].resample("1D").last().ffill()
     first_day = eq.index[0] - pd.Timedelta(days=1)
@@ -386,7 +389,7 @@ def compute_metrics(t: pd.DataFrame, initial_capital: float) -> dict:
 
     span_days = max((t["exit_time"].iloc[-1] - t["exit_time"].iloc[0]).days, 1)
     ann_ret   = (final / initial_capital) ** (365.25 / span_days) - 1
-    calmar    = float(ann_ret / (max_dd / 100)) if max_dd > 0 else float("inf")
+    calmar    = float(ann_ret / max_dd) if max_dd > 1e-6 else float("inf")
 
     return dict(n=n, wins=wins, losses=losses, win_rate=win_rate,
                 avg_win=avg_win, avg_loss=avg_loss, pf=pf, expectancy=expectancy,
@@ -416,10 +419,10 @@ def print_summary_table(strategy_name: str, header: str, metrics: dict):
         pf_s  = f"{m['pf']:.2f}"     if m["pf"]    < 999 else "inf"
         cal_s = f"{m['calmar']:.2f}" if m["calmar"] < 999 else "inf"
         print(_row([
-            coin.upper(), m["n"], f"{m['win_rate']:.1f}%",
+            coin.upper(), m["n"], f"{m['win_rate']*100:.1f}%",
             f"${m['avg_win']:.1f}", f"${m['avg_loss']:.1f}",
             pf_s, f"${m['expectancy']:.1f}",
-            f"{m['total_ret']:.1f}%", f"{m['max_dd']:.1f}%",
+            f"{m['total_ret']*100:.1f}%", f"{m['max_dd']*100:.1f}%",
             f"{m['sharpe']:.2f}", cal_s,
         ]))
     print(_sep("+", "+", "+"))
@@ -444,18 +447,18 @@ def current_params() -> dict:
 
 def run_once(verbose: bool = True, coins=None) -> tuple:
     active_coins = coins if coins is not None else COINS
-    coin_returns: dict     = {}
-    coin_hold_ratios: dict = {}
+    coin_returns: dict = {}
+    coin_max_dd: dict  = {}
     coin_metrics: dict     = {}
     for symbol, coin in active_coins:
         result = run_backtest(symbol, coin) if verbose else _run_silent(symbol, coin)
         if result is not None:
-            _, ret, hold_ratio, m = result
-            coin_returns[coin]     = ret
-            coin_hold_ratios[coin] = hold_ratio
-            coin_metrics[coin]     = m
+            _, ret, max_dd_frac, m = result
+            coin_returns[coin] = ret
+            coin_max_dd[coin]  = max_dd_frac
+            coin_metrics[coin] = m
     avg_ret = sum(coin_returns.values()) / len(coin_returns) if coin_returns else 0.0
-    return avg_ret, coin_returns, coin_hold_ratios, coin_metrics
+    return avg_ret, coin_returns, coin_max_dd, coin_metrics
 
 
 def _run_silent(symbol: str, coin: str):
@@ -483,12 +486,12 @@ def _worker_init():
 def _tune_worker(p: dict):
     coins_filter = p.pop("_coins", None)
     _apply_params(p)
-    avg_ret, coin_returns, coin_hold_ratios, coin_metrics = run_once(verbose=False, coins=coins_filter)
+    avg_ret, coin_returns, coin_max_dd, coin_metrics = run_once(verbose=False, coins=coins_filter)
     # Score = Calmar ratio (annualised return / max drawdown); fall back to 0 if no trades
     coin_scores = {coin: (coin_metrics[coin]["calmar"] if coin_metrics.get(coin) and
                           coin_metrics[coin]["calmar"] < 1e9 else 0.0)
                   for coin in coin_returns}
-    return p, avg_ret, coin_returns, coin_hold_ratios, coin_scores, current_params()
+    return p, avg_ret, coin_returns, coin_max_dd, coin_scores, current_params()
 
 
 def _save_best_results_table():
@@ -540,7 +543,7 @@ def auto_tune(coins=None):
     done = 0
     pbar = tqdm(total=total, desc="AUTO-TUNE", unit="combo", ncols=90)
     with ctx.Pool(processes=n_workers, initializer=_worker_init) as pool:
-        for p, avg_ret, coin_returns, coin_hold_ratios, coin_scores, snapped in \
+        for p, avg_ret, coin_returns, coin_max_dd, coin_scores, snapped in \
                 pool.imap_unordered(_tune_worker, combos, chunksize=1):
             done += 1
             pbar.update(1)
@@ -549,10 +552,10 @@ def auto_tune(coins=None):
                 prev_score = best.get(coin, {}).get("best_calmar", float("-inf"))
                 if score > prev_score:
                     best[coin] = {
-                        "best_calmar":    round(score, 4),
-                        "best_return":    round(coin_returns.get(coin, 0), 6),
-                        "max_hold_ratio": round(coin_hold_ratios[coin], 6),
-                        "params":         snapped,
+                        "best_calmar": round(score, 4),
+                        "best_return": round(coin_returns.get(coin, 0), 6),
+                        "max_dd_frac": round(coin_max_dd[coin], 6),
+                        "params":      snapped,
                     }
                     updated.append(f"{coin.upper()} calmar={score:.2f}")
             if updated:
@@ -586,7 +589,7 @@ def main():
         auto_tune(coins=coins_filter)
         return
 
-    avg_return, coin_returns, coin_hold_ratios, coin_metrics = run_once(verbose=True)
+    avg_return, coin_returns, coin_max_dd, coin_metrics = run_once(verbose=True)
     print(f"\nAvg return: {avg_return*100:.1f}%")
     print_summary_table("Trend Breakout", "single run", coin_metrics)
 
@@ -595,10 +598,10 @@ def main():
         score = m["calmar"] if m["calmar"] < 1e9 else 0.0
         if score > best.get(coin, {}).get("best_calmar", float("-inf")):
             best[coin] = {
-                "best_calmar":    round(score, 4),
-                "best_return":    round(coin_returns[coin], 6),
-                "max_hold_ratio": round(coin_hold_ratios[coin], 6),
-                "params":         current_params(),
+                "best_calmar": round(score, 4),
+                "best_return": round(coin_returns[coin], 6),
+                "max_dd_frac": round(coin_max_dd[coin], 6),
+                "params":      current_params(),
             }
     BEST_PARAMS_FILE.write_text(json.dumps(best, indent=2))
     print(f"\nLogs -> {RESULTS_DIR}/")
