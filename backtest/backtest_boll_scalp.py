@@ -58,15 +58,15 @@ AUTO_TUNE = True
 TUNE_SPACE = {
     "LEVERAGE":         [5, 10],
     "BASE_RISK":        [0.01, 0.02],
-    "BB_PERIOD":        [10, 20, 40],
+    "BB_PERIOD":        [20, 40],
     "BB_STD":           [1.5, 2.0, 2.5],
-    "SL_TP_RATIO":      [0.3, 0.5, 0.75, 1.0, 1.5],
+    "SL_TP_RATIO":      [0.5, 0.75, 1.0, 1.5],
     "TREND_EMA_PERIOD": [50, 100, 200],
     "USE_PARTIAL_TP":   [True, False],
     "MAX_HOLD_BARS":    [24, 48, 96],
     "VOL_DIV_PERIOD":   [0, 3, 5],   # 0 = disabled
 }
-# Total combinations per coin: 2x2x3x3x5x3x2x3 = 6480
+# Total combinations per coin: 2x2x2x3x4x3x2x3x3 = 5184
 
 COINS = [
     ("BTC/USDT:USDT", "btc"),
@@ -105,10 +105,10 @@ def prepare(df_5m: pd.DataFrame) -> pd.DataFrame:
     df["trend_ema"] = ema_raw.shift(1)
     df["trend_up"]  = ema_raw.shift(1) > ema_raw.shift(2)  # EMA rising = bullish
 
-    # Entry signals: close crosses the band (prev bar inside, this bar outside)
+    # Entry signals: price pierced the band on prev bar, closed back inside this bar
     prev_close = df["close"].shift(1)
-    df["entry_long"]  = (prev_close >= df["bb_lower"]) & (df["close"] < df["bb_lower"])
-    df["entry_short"] = (prev_close <= df["bb_upper"]) & (df["close"] > df["bb_upper"])
+    df["entry_long"]  = (prev_close < df["bb_lower"]) & (df["close"] >= df["bb_lower"])
+    df["entry_short"] = (prev_close > df["bb_upper"]) & (df["close"] <= df["bb_upper"])
 
     # Volume-price divergence: price moving in trade direction but volume shrinking
     # Used as early TP signal when VOL_DIV_PERIOD > 0
