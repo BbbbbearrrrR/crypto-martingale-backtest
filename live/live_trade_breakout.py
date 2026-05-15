@@ -42,8 +42,7 @@ from backtest import backtest_breakout as bb
 
 # ── Config ────────────────────────────────────────────────────────────────────
 # USE_TESTNET removed — Binance futures testnet is discontinued.
-# Use Binance Demo Trading instead (https://www.binance.com/en/futures/BTCUSDT).
-# Generate a Demo API key on Binance and set BINANCE_API_KEY / BINANCE_API_SECRET.
+# Use Binance Demo Trading instead: get API key from https://demo.binance.com
 DRY_RUN          = "--dry-run" in sys.argv
 # Your total account balance. Each coin gets INITIAL_CAPITAL / len(COINS) as its
 # virtual starting capital so simultaneous entries across coins don't over-allocate.
@@ -71,6 +70,7 @@ def make_exchange() -> ccxt.binanceusdm:
         "enableRateLimit": True,
         "options":        {"defaultType": "future"},
     })
+    ex.enable_demo_trading(True)
     return ex
 
 
